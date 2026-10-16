@@ -62,7 +62,7 @@ observation.records.each { |record| p record }
 
 详细厂商语义、历史验证记录和 Motor 专用集成说明保留在[架构参考](docs/architecture-zh.md)。其中宿主集成代码需要 Motor，不属于独立 gem API。适配层位于 [Motor 仓库](https://github.com/gatework/motor/tree/main/backend/lib) 的 `backend/lib/baseline`、`backend/lib/vxlan` 和 `backend/lib/wireless`。
 
-生命周期 connector 是宿主适配器，提供 `open { |session| }`，VXLAN 还要求 `platform`；原生 `Net::Connector::Base` 实例并不提供这一宿主生命周期协议。已连接的原生会话可传入 `CtxDriver::Reader` 或 `CtxChecker::Collector#collect_session`，不会隐式连接或重试。
+生命周期 connector 是宿主适配器，提供 `open { |session| }`，VXLAN 和 Wireless 还要求 `platform`；原生 `Net::Connector::Base` 实例并不提供这一宿主生命周期协议。已连接的原生会话可传入 `CtxDriver::Reader` 或 `CtxChecker::Collector#collect_session`，不会隐式连接或重试。
 
 ## 开发与测试
 
