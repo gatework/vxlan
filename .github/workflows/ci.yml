@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["4.0.6"]
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - run: bundle exec rake
+      - run: bundle exec rake build
+      - name: Verify the built package outside Bundler
+        run: ruby script/verify_package.rb pkg/vxlan-*.gem
+      - name: Record artifact checksum
+        run: |
+          ruby -rdigest -e 'files = Dir["pkg/*.gem"]; abort "Expected one gem" unless files.one?; File.write("pkg/SHA256SUMS", "#{Digest::SHA256.file(files.first).hexdigest}  #{File.basename(files.first)}\n")'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: gem-${{ github.sha }}
+          path: |
+            pkg/*.gem
+            pkg/SHA256SUMS
+          if-no-files-found: error

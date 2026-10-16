@@ -1,0 +1,19 @@
+/.bundle/
+/Gemfile.lock
+/pkg/
+/*.gem
+/coverage/
+/spec/examples.txt
+
+# 原始设备回显、日志与本地凭据仅留在本机。
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/credentials*
+/secrets/
+/storage/
+/tmp/
+.DS_Store

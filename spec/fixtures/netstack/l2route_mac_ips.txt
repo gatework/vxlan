@@ -1,0 +1,8 @@
+Flags -(Rmac):Router MAC (Stt):Static (L):Local (R):Remote (V):vPC link
+(Dup):Duplicate (Spl):Split (Rcv):Recv(D):Del Pending (S):Stale (C):Clear
+(Ps):Peer Sync (Ro):Re-Originated (Orp):Orphan
+Topology    Mac Address    Host IP                                 Prod   Flags         Seq No     Next-Hops
+----------- -------------- --------------------------------------- ------ ---------- ---------- ---------------------------------------
+8           0011.2233.4455 192.0.2.11                              BGP    --            0         192.0.2.21 (Label: 100008)
+8           0011.2233.4455 192.0.2.12                              BGP    --            5         192.0.2.22 (Label: 100008)
+8           0011.2233.4466 2001:db8::11                            ARP    --            0         Eth1/10
