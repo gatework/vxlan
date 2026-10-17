@@ -21,7 +21,7 @@ gem "vxlan"
 
 Then run `bundle install`, or install directly with `gem install vxlan`. The require path is `vxlan` and the public namespace is `Vxlan`; package names and Ruby namespaces are intentionally separate.
 
-Internal runtime dependencies: [`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver). The gemspec declares runtime dependencies without version constraints. Applications should commit their own `Gemfile.lock` to make deployments reproducible. No Rails boot or sibling checkout paths are required.
+Internal runtime dependencies: [`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver). Shared Gatework dependencies require the compatible 0.2.x API. Applications should commit their own `Gemfile.lock` to make deployments reproducible. No Rails boot or sibling checkout paths are required.
 
 Release artifacts and checksums are available from [GitHub Releases](https://github.com/gatework/vxlan/releases). Check [RubyGems](https://rubygems.org/gems/vxlan) for published versions.
 
