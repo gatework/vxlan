@@ -18,7 +18,7 @@ module Vxlan
       def parse_rows(text)
         type = self.class::TYPE
         @totals = []
-        fields = previous = nil
+        fields = previous = next_hop_index = nil
         text.each_line.with_index(1) do |source, number|
           line = source.strip
           next if line.empty? || line.match?(/\A[-=\s]+\z/) || line.match?(/\A(?:Flags\s*-\s*)?(?:\([A-Za-z0-9]+\):[A-Za-z0-9 ,\/-]+\s*)+\z/)
@@ -45,9 +45,21 @@ module Vxlan
                 values = line.split(/\s+/, fields.size)
                 raise ArgumentError unless values.size == fields.size
                 previous = route(fields.zip(values).to_h, type)
+                next_hop_index = nil
                 @rows << previous
               elsif previous && source.match?(/\A\s+/)
-                previous[:next_hops] = (previous[:next_hops] + next_hops(line)).uniq
+                hops = next_hops(line)
+                # 首条续行建立索引，后续仅追加新下一跳；非法续行不会改动已有事实。
+                unless next_hop_index
+                  previous[:next_hops].uniq!
+                  next_hop_index = previous[:next_hops].to_h { |hop| [ hop, true ] }
+                end
+                hops.each do |hop|
+                  next if next_hop_index.key?(hop)
+
+                  previous[:next_hops] << hop
+                  next_hop_index[hop] = true
+                end
               else
                 raise ArgumentError
               end
@@ -73,9 +85,9 @@ module Vxlan
       def route(values, type)
         values[:topology_id] = number(values[:topology_id])
         raise ArgumentError unless values[:mac].match?(/\A(?:[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\z/i)
-        values[:mac] = CtxParser::Values.mac(values[:mac])
+        values[:mac] = CtxParser::Values.mac_address(values[:mac])
         values[:sequence] = number(values[:sequence]) if values[:sequence]
-        values[:host_ip] = host(values.fetch(:host_ip)) if type == :mac_ip
+        values[:host_ip] = ip_address(values.fetch(:host_ip)) if type == :mac_ip
         values[:next_hops] = next_hops(values.fetch(:next_hops))
         values
       end
@@ -91,7 +103,7 @@ module Vxlan
           when /\ALocal\z/i then { local: true }
           when /\AIfindex\s+(\d+)\z/i then { ifindex: number($1) }
           when /\A(?:Eth|Po|nve|Lo|Vlan|vPC)/i then { interface: token }
-          else { address: host(token) }
+          else { address: ip_address(token) }
           end
           value[:label] = number(match[:label]) if match[:label]
           result << value
@@ -110,8 +122,8 @@ module Vxlan
       end
 
       # 归一化主机地址，保留 IPv4 与 IPv6 语义。
-      def host(value)
-        CtxParser::Values.host(value, allow_zone: true)
+      def ip_address(value)
+        CtxParser::Values.ip_address(value, allow_zone: true)
       end
     end
   end

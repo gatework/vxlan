@@ -33,7 +33,7 @@ module Vxlan
               case layout
               when /\APort\s+VRF/i
                 if state == 2 && [ 4, 6 ].include?(words.size) && (words.size == 4 || words[5].match?(/\A\d+\z/)) &&
-                  (words[3] == "--" || valid_host?(words[3]))
+                  (words[3] == "--" || ip_address?(words[3]))
                   row.merge!(vrf: words[1], ip_address: words[3])
                   row.merge!(speed: words[4], mtu: words[5].to_i) if words.size == 6
                 else

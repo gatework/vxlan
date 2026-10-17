@@ -3,6 +3,36 @@
 require_relative "spec_helper"
 
 RSpec.describe "Immutable facts and evidence" do
+  it "rejects mutable observation identities and mismatched snapshot dimensions" do
+    expect { Vxlan::Observation.new(name: +"interfaces", status: :complete) }.to raise_error(ArgumentError)
+    observation = Vxlan::Observation.new(name: :interfaces, status: :complete)
+    [ { configuration: observation }, { interfaces: Object.new }, [] ].each do |dimensions|
+      expect { Vxlan::Snapshot.new(target: {}, fabric_key: "LAB", dimensions: dimensions, observed_at: nil) }.to raise_error(ArgumentError)
+    end
+  end
+
+  it "copies dimension entries without retaining a hash default or default proc" do
+    [ Hash.new({ collect: +"mutable" }), Hash.new { |_hash, _key| raise "caller callback" } ].each do |dimensions|
+      observation = Vxlan::Observation.new(name: :interfaces, status: :complete)
+      dimensions[:interfaces] = observation
+      snapshot = Vxlan::Snapshot.new(target: {}, fabric_key: "LAB", dimensions: dimensions, observed_at: nil)
+      expect(snapshot.dimensions[:missing]).to be_nil
+      expect(snapshot.dimensions[:interfaces]).to equal(observation)
+      expect(snapshot).to be_complete
+    end
+  end
+
+  it "keeps string interpolation as private as inspect for facts and snapshots" do
+    observation = Vxlan::Observation.new(name: :configuration, status: :complete,
+      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { detail: "PRIVATE_EVIDENCE" } ])
+    snapshot = Vxlan::Snapshot.new(target: { credential: "PRIVATE_TARGET" }, fabric_key: "LAB",
+      dimensions: { configuration: observation }, observed_at: nil)
+    [ observation, snapshot ].each do |value|
+      expect("#{value}").to eq(value.inspect)
+      expect("#{value}").not_to include("PRIVATE_")
+    end
+  end
+
   [ Vxlan::Observation ].each do |type|
     context type.name do
       let(:attributes) { type == CtxParser::Result ? {} : { name: :configuration } }

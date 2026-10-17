@@ -23,6 +23,9 @@ module Vxlan
       unless dimensions.is_a?(Array) && dimensions.any? && dimensions.uniq == dimensions && (dimensions - COMMANDS.keys).empty?
         raise ArgumentError, "Unknown or duplicate VXLAN dimensions"
       end
+      target = CtxParser::Immutable.copy(target)
+      fabric_key = CtxParser::Immutable.copy(fabric_key)
+      dimensions = dimensions.dup.freeze
       raise ArgumentError, "VXLAN requires Cisco NX-OS" unless connector.platform.to_s == "cisco_nxos"
       profile = ParserRegistry.fetch(connector.platform, model: model)
 

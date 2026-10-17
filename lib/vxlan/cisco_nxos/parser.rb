@@ -4,6 +4,7 @@ require "ctx_parser/parser"
 require "ctx_parser/records"
 require "ctx_parser/input"
 require "ctx_parser/values"
+require_relative "terminal"
 
 module Vxlan
   module CiscoNxos
@@ -22,6 +23,10 @@ module Vxlan
           text = CtxParser::Input.text(text, allow_nul: true)
         rescue EncodingError
           return CtxParser::Result.new(status: :partial, issues: [ { code: :invalid_encoding } ])
+        end
+        if Terminal.invalid_output?(text)
+          line = text.each_line.with_index(1).find { |source, _number| Terminal.invalid_output?(source) }.last
+          return CtxParser::Result.new(status: :partial, issues: [ { code: :invalid_terminal_output, line: line } ])
         end
         if self.class::UNSUPPORTED&.match?(text)
           return CtxParser::Result.new(status: :unsupported, issues: [ { code: :command_unsupported } ])
@@ -89,8 +94,8 @@ module Vxlan
       end
 
       # 校验主机地址有效性，不让格式错误值继续传播。
-      def valid_host?(value)
-        CtxParser::Values.valid_host?(value, allow_zone: true)
+      def ip_address?(value)
+        CtxParser::Values.ip_address?(value, allow_zone: true)
       end
 
       # 返回可作为权威清单的结果前，先识别身份冲突。

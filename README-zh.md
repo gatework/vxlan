@@ -60,11 +60,21 @@ observation.records.each { |record| p record }
 
 `Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` 使用宿主提供的 connector；设备身份、凭据、持久化、库存对账和并发策略由宿主负责。本 gem 不包含 fabric 规划、配置下发、Rails 模型或 `Vxlan::Sync`。加载库或运行离线示例不会访问设备。
 
+采集器在打开连接前复制目标身份、Fabric 身份和维度选择。`Observation` 的名称必须为 Symbol；`Snapshot` 的维度值必须是名称与键一致的 `Observation`。两种对象的字符串插值均使用只含元数据的 `inspect` 表示。
+
+接口、NVE、路由、VRF 和 vPC 等单值配置发生冲突时，移除歧义字段并保留部分证据。VRF 冲突的接口、配置冲突的 BGP 邻居或模板在推导地址或继承事实前被排除；未解析的 peer-template 不生成邻居投影。不支持的路由嵌套也保持 `partial`。运行回显含分页或终端编辑控制符时，因无法信任行边界，返回无记录的 `partial`。Port-channel 成员冲突检查同时覆盖续行及不同聚合组。
+
 详细厂商语义、历史验证记录和 Motor 专用集成说明保留在[架构参考](docs/architecture-zh.md)。其中宿主集成代码需要 Motor，不属于独立 gem API。适配层位于 [Motor 仓库](https://github.com/gatework/motor/tree/main/backend/lib) 的 `backend/lib/baseline`、`backend/lib/vxlan` 和 `backend/lib/wireless`。
 
 生命周期 connector 是宿主适配器，提供 `open { |session| }`，VXLAN 和 Wireless 还要求 `platform`；原生 `Net::Connector::Base` 实例并不提供这一宿主生命周期协议。已连接的原生会话可传入 `CtxDriver::Reader` 或 `CtxChecker::Collector#collect_session`，不会隐式连接或重试。
 
+## 领域术语
+
+VLAN ID、VNI、VRF、NVE 成员是不同身份。配置审查通过 VNI 关联 VLAN 映射与 NVE 成员，不推断运行可达性。`BgpNeighbors` 枚举应用 peer-template 继承后的配置邻居，不代表已建立的 BGP 会话。`PrefixListReferences` 表达 route-map 选择器及路由使用方的引用关系，引用本身不能证明路由被接受。
+
 ## 开发与测试
+
+共享类按实际职责命名，平台信息放在命名空间中。直接对应设备命令的解析器保留文件名和类名。
 
 ```sh
 bundle install
@@ -76,6 +86,8 @@ bundle exec rake build
 `bundle exec rake` 执行 RSpec、RuboCop 及离线示例。测试放在 `spec/`，沿用项目 RSpec 约定；样例采用合成或脱敏证据。新增解析格式时补充成功、不完整、不支持及非法输入回归。离线测试不代表所有设备版本均通过实机验证。
 
 使用声明的最低 Ruby 版本检查兼容性。方法用途统一使用简明中文注释；复杂实现还需说明业务规则、实现思路及关键分支。保持公开返回值与错误契约。真实回显和凭据不可进入示例、fixture、日志或发布包。
+
+运行 `bundle exec ruby -Ilib benchmark/tables.rb`，比较 500、2,000、5,000 条数据下的本地解析及引用构建开销。每组核对结果，报告三次采样中的最快耗时与对象分配数。合成输入不代表设备或网络性能。
 
 ## 发布
 

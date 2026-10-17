@@ -48,7 +48,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors do
 
   it "validates the input contract without silently coercing objects or completeness" do
     [ nil, [], { output: output } ].each do |input|
-      expect { described_class.parse(input) }.to raise_error(ArgumentError, "Runtime output must be text")
+      expect { described_class.parse(input) }.to raise_error(ArgumentError, "Parser input must be text")
     end
     expect { described_class.parse(output, complete: "true") }.to raise_error(ArgumentError, "Completeness must be boolean")
   end

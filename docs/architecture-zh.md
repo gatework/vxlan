@@ -13,7 +13,7 @@ Motor::Device
   → Motor::Devices::Connector（凭据、平台、严格主机密钥、超时、会话生命周期）
   → CtxDriver::Reader（net-connector 单命令采集边界）
   → Vxlan::Collector（同一设备逐条读取）
-  → Configuration / RuntimeParser / L2routeParser（维度与 Observation 适配）
+  → Configuration / RuntimeParser（维度与 Observation 适配）
   → CiscoNxos::Profile / Parsers::Show*（平台与型号策略、按命令解析）
   → Snapshot / Observation
   → Vxlan::Sync（锁设备、复核来源与版本、事务）
@@ -49,7 +49,7 @@ bundle exec rake 'motor:netstack:vxlan[456,LAB]'
 
 Cisco N9K 的具体策略位于 [`lib/vxlan/cisco_nxos`](../lib/vxlan/cisco_nxos/profile.rb)，按命令拆分为 `parsers/show_ip_ospf_neighbors.rb` 等独立文件。直接调用 `Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors.parse(cli_output, complete: true)` 即可离线解析。`ParserRegistry.fetch(:cisco_nxos, model: device.model)` 选择平台与型号策略；命令清单和解析类统一在 `CiscoNxos::Profile` 中声明。原解析入口继续转换为 `Vxlan::Observation`。公共接口、结果对象和扩展方式见 [`../ctx_parser`](https://github.com/gatework/ctx_parser)。
 
-配置解析按职责组合：`ShowRunningConfig` 编排命令解析，`ConfigurationParsing::Interfaces/Routing/Policies` 分别解释接口/NVE、路由上下文及策略语法，`CtxParser::ConfigurationParser` 管理逐行状态、嵌套来源路径与捕获，`CiscoNxos::Configuration` 在全部块解析后归约特性列表、校验 BGP 模板引用并关联 SVI/VLAN/VNI 网段。接口地址与网段使用 `CtxParser::Values.ipv4_prefix` 的同一校验。重复身份仍排除歧义记录；语法未知、引用不完整与来源行号继续进入原有 `Result`，供入库边界判断。
+配置解析按职责组合：`ShowRunningConfig` 编排命令解析，`Syntax::Interfaces/Routing/Policies` 分别解释接口/NVE、路由上下文及策略语法，`CtxParser::Configuration` 管理逐行状态、嵌套来源路径与捕获，`CiscoNxos::Configuration` 在全部块解析后归约特性列表、校验 BGP 模板引用并关联 SVI/VLAN/VNI 网段。接口地址与网段使用 `CtxParser::Values.ipv4_prefix` 的同一校验。重复身份仍排除歧义记录；语法未知、引用不完整与来源行号继续进入原有 `Result`，供入库边界判断。
 
 设备连接默认关闭旧版 SSH 算法协商。确认单台旧设备确有算法兼容需求后，可在其现有 `settings["connector"]["legacy_ssh"]` 中显式保存布尔值 `true`；省略或 `false` 保持关闭，字符串、NULL 等非布尔值会在连接前拒绝。该设置直接传给 net-connector，主机密钥仍严格核验 `storage/net_connector/known_hosts`，不启用 Telnet 回退。连接异常仅保留允许列表中的诊断码（例如 `unsupported_host_key_algorithm`），未知码归为 `connection_failed`；VXLAN 未采集维度保存该原因，不保存底层异常文案或 cause。
 
@@ -84,7 +84,7 @@ NVE 的内联 `member vni ... mcast-group ...` 与嵌套组播声明归一为相
 
 `ip unnumbered` 保留借用接口关系；同 VRF 的唯一 Loopback IPv4 地址归约到 `unnumbered_addresses`。Underlay 清单使用该物理接口和借用的 /32 主机地址，不猜测链路子网。缺失、歧义、循环或跨 VRF 引用保持 partial；IPv6 Underlay 未被伪装成已支持的 IPv4 清单。
 
-NX-OS 的 `ConfigurationDocument` 与 Baseline 共用 `CtxParser::Banner` 状态机，banner 正文不会生成配置事实；EOF 未闭合会产生 `incomplete_banner`。
+NX-OS 的 `Document` 与 Baseline 共用 `CtxParser::Banner` 状态机，banner 正文不会生成配置事实；EOF 未闭合会产生 `incomplete_banner`。
 
 完整配置的 `review_findings` 输出 VLAN/VNI/NVE/EVPN 关联核查项，不改变语法完整性，也不直接表示运行故障。`review_status` 为 partial 时不根据缺失数据生成关联结论。这样保留“配置收到且语法已理解”和“业务关联需要核实”两个事实。
 

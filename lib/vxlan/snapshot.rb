@@ -1,14 +1,19 @@
 # frozen_string_literal: true
 
 require "ctx_parser/immutable"
+require_relative "observation"
 
 module Vxlan
   # 携带单设备 Fabric 身份及观测结果，不管理资产清单。
   Snapshot = Data.define(:target, :fabric_key, :dimensions, :observed_at) do
     # 事实由不可变领域观测持有；仅复制维度选择，不重复复制事实。
     def initialize(target:, fabric_key:, dimensions:, observed_at:)
+      unless dimensions.is_a?(Hash) && dimensions.all? { |name, value| value.is_a?(Observation) && value.name == name }
+        raise ArgumentError, "Dimensions must match their observations"
+      end
+
       super(target: CtxParser::Immutable.copy(target), fabric_key: CtxParser::Immutable.copy(fabric_key),
-        dimensions: dimensions.dup.freeze, observed_at: observed_at&.dup&.freeze)
+        dimensions: dimensions.to_h { |name, value| [ name, value ] }.freeze, observed_at: observed_at&.dup&.freeze)
     end
 
     # 判断所有已选事实是否都有完整证据支持。
@@ -19,5 +24,6 @@ module Vxlan
 
     # 展示对象身份与状态，避免泄露原始回显或凭据。
     def inspect = "#<#{self.class.name} fabric=#{fabric_key.inspect} complete=#{complete?}>"
+    alias to_s inspect
   end
 end

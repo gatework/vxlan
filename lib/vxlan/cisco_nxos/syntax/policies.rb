@@ -2,7 +2,7 @@
 
 module Vxlan
   module CiscoNxos
-    module ConfigurationParsing
+    module Syntax
       # 前缀列表与路由映射保留地址族及引用选择器。
       module Policies
         private
@@ -18,10 +18,18 @@ module Vxlan
           raise ArgumentError if (ge && !(length..width).cover?(ge)) || (le && !((ge || length)..width).cover?(le))
           entries = (lists[match[1]] ||= [])
           sequence = integer(match[2], 1..4_294_967_295)
-          raise ArgumentError if entries.any? { |entry| entry[:sequence] == sequence }
-          entries << { sequence: sequence, action: match[3], prefix: subnet, ge: ge, le: le }
           collection = family == "ipv6" ? :ipv6_prefix_lists : :prefix_lists
+          raise ArgumentError if register_policy_sequence(collection, match[1], sequence)
+          entries << { sequence: sequence, action: match[3], prefix: subnet, ge: ge, le: le }
           capture(block, entries.last, [ collection, match[1], entries.size - 1 ])
+        end
+
+        # 单次解析用索引识别重复序号，避免长策略逐条扫描已有条目。
+        def register_policy_sequence(collection, name, sequence)
+          key = [ collection, name, sequence ]
+          duplicate = @policy_sequences.key?(key)
+          @policy_sequences[key] = true
+          duplicate
         end
 
         # 解析有序 route-map 条目及策略引用。

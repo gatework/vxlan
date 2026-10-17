@@ -18,7 +18,7 @@ module Vxlan
   module CiscoNxos
     # 声明 Cisco N9K NX-OS 命令，并通过 MODEL_PARSERS 逐命令覆盖型号差异。
     class Profile < CtxParser::Profile
-      CATALOG = CtxParser::CommandCatalog.new([
+      DECLARATIONS = CtxParser::Commands.new([
         { dimensions: [ :configuration ], command: "show running-config", parser: Parsers::ShowRunningConfig },
         { dimensions: [ :cdp_neighbors ], command: "show cdp neighbors detail", parser: Parsers::ShowCdpNeighborsDetail },
         { dimensions: [ :nve_peers ], command: "show nve peers", parser: Parsers::ShowNvePeers },
@@ -32,8 +32,8 @@ module Vxlan
         { dimensions: [ :l2route_macs ], command: "show l2route evpn mac all", parser: Parsers::ShowL2routeEvpnMacAll },
         { dimensions: [ :l2route_mac_ips ], command: "show l2route evpn mac-ip all", parser: Parsers::ShowL2routeEvpnMacIpAll }
       ])
-      COMMANDS = CATALOG.commands
-      PARSERS = CATALOG.parsers
+      COMMANDS = DECLARATIONS.by_dimension
+      PARSERS = DECLARATIONS.parsers
     end
   end
 end

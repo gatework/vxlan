@@ -20,7 +20,7 @@ module Vxlan
           lines(text) do |line, number|
             if HEADER.match?(line)
               @header = true
-            elsif (match = ROW.match(line)) && valid_host?(match[2])
+            elsif (match = ROW.match(line)) && ip_address?(match[2])
               @rows << FIELDS.zip(match.captures).to_h.merge(state: match[3].downcase)
             else
               reject(number)

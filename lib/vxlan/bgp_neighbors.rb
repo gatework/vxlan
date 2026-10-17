@@ -14,14 +14,18 @@ module Vxlan
     def each
       return enum_for(:each) unless block_given?
 
-      templates = @bgp.fetch(:templates, {})
-      { "default" => @bgp }.merge(@bgp.fetch(:vrfs, {})).each do |vrf, scope|
-        scope.fetch(:neighbors, {}).each do |peer, child|
-          parent = templates.fetch(child[:inherit_peer], {})
-          families = parent.fetch(:address_families, {}).merge(child.fetch(:address_families, {})) do |_name, inherited, explicit|
-            inherited.merge(explicit.compact).merge(route_maps: inherited.fetch(:route_maps, {}).merge(explicit.fetch(:route_maps, {})))
+      peer_templates = @bgp.fetch(:templates, {})
+      { "default" => @bgp }.merge(@bgp.fetch(:vrfs, {})).each do |vrf, vrf_configuration|
+        vrf_configuration.fetch(:neighbors, {}).each do |peer, neighbor_configuration|
+          inherited_name = neighbor_configuration[:inherit_peer]
+          # 未解析或已冲突的模板不能生成看似有效的邻居投影。
+          next if inherited_name && !peer_templates.key?(inherited_name)
+
+          peer_template = peer_templates.fetch(inherited_name, {})
+          address_families = peer_template.fetch(:address_families, {}).merge(neighbor_configuration.fetch(:address_families, {})) do |_name, template_family, neighbor_family|
+            template_family.merge(neighbor_family.compact).merge(route_maps: template_family.fetch(:route_maps, {}).merge(neighbor_family.fetch(:route_maps, {})))
           end
-          yield vrf, peer, parent.merge(child.compact).merge(address_families: families)
+          yield vrf, peer, peer_template.merge(neighbor_configuration.compact).merge(address_families: address_families)
         end
       end
     end

@@ -14,23 +14,24 @@ module Vxlan
     def call(address_family: "ipv4")
       raise ArgumentError, "Unsupported address family" unless %w[ipv4 ipv6].include?(address_family)
 
-      bindings = route_map_bindings
-      @configuration.fetch(:route_maps).each_with_object({}) do |(name, entries), references|
+      bindings = route_map_bindings.transform_values(&:uniq)
+      references = @configuration.fetch(:route_maps).each_with_object({}) do |(name, entries), result|
         entries.sort_by { |entry| entry.fetch(:sequence) }.each do |entry|
           matches = entry.fetch(:prefix_list_matches) do
             [ { address_family: "ipv4", selector: "address", names: entry.fetch(:prefix_lists, []) } ]
           end
           matches.select { |match| match[:address_family] == address_family }.each do |match|
-            caller = { type: "route_map", name: name, sequence: entry.fetch(:sequence), action: entry.fetch(:action),
-              bindings: bindings.fetch(name, []).uniq }
-            caller[:selector] = match[:selector] unless match[:selector] == "address"
+            route_map_reference = { type: "route_map", name: name, sequence: entry.fetch(:sequence), action: entry.fetch(:action),
+              bindings: bindings.fetch(name, []).dup }
+            route_map_reference[:selector] = match[:selector] unless match[:selector] == "address"
             match.fetch(:names).uniq.each do |prefix_list|
-              callers = (references[prefix_list] ||= [])
-              callers << caller unless callers.include?(caller)
+              (result[prefix_list] ||= []) << route_map_reference
             end
           end
         end
       end
+      # 一次去重保留首次出现顺序，避免每个条目都扫描已有引用。
+      references.transform_values(&:uniq)
     end
 
     private

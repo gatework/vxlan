@@ -60,11 +60,21 @@ Complete transport is necessary but insufficient for complete parsing: unknown s
 
 `Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` uses a host-supplied connector; device identity, credentials, persistence, reconciliation, and concurrency policy belong to the host. This gem includes no fabric planner, provisioning engine, Rails models, or `Vxlan::Sync`. Loading or running the offline example does not access a device.
 
+The collector copies target identity, fabric identity, and dimension selection before opening the connection. `Observation` names must be symbols; each `Snapshot` dimension must hold an `Observation` with a matching name. Both objects use their metadata-only `inspect` representation for string interpolation.
+
+Conflicting singleton configuration values are excluded and reported as partial evidence, including interface, NVE, routing, VRF, and vPC settings. An interface with a conflicting VRF, or a BGP neighbor or template with conflicting settings, is excluded before deriving addresses or inherited facts; unresolved peer templates produce no neighbor projection. Unsupported routing nesting stays partial. Runtime output containing pagination or terminal editing controls returns `partial` with no records because its row boundaries cannot be trusted. Port-channel member conflicts are excluded across both wrapped lines and separate groups.
+
 Detailed vendor behavior, historical validation notes, and Motor-only integration are preserved in [the architecture reference](docs/architecture-zh.md). Host integration examples in that reference require Motor; they are not standalone gem APIs. Motor adapters live under `backend/lib/baseline`, `backend/lib/vxlan`, and `backend/lib/wireless` in the [Motor repository](https://github.com/gatework/motor/tree/main/backend/lib).
 
 The lifecycle connector is a host adapter exposing `open { |session| }` (and `platform` for VXLAN and Wireless). It is distinct from a native `Net::Connector::Base` device instance. Borrowed native sessions are accepted by `CtxDriver::Reader` and `CtxChecker::Collector#collect_session`; they are never implicitly connected or retried.
 
+## Domain vocabulary
+
+VLAN IDs, VNIs, VRFs, and NVE members are separate identities. Configuration review joins VLAN mappings and NVE members by VNI; it does not infer operational reachability. `BgpNeighbors` enumerates configured neighbors after peer-template inheritance, not established BGP sessions. `PrefixListReferences` describes route-map selectors and their routing consumers; those references do not by themselves prove route acceptance.
+
 ## Development and tests
+
+Name shared classes by their responsibility and use the namespace for platform context. Preserve filenames and class names that directly match device commands.
 
 ```sh
 bundle install
@@ -76,6 +86,8 @@ bundle exec rake build
 `bundle exec rake` runs RSpec, RuboCop, and the offline examples. Tests live in `spec/`, following the existing project's RSpec convention; fixtures use synthetic or sanitized evidence. Add regression cases for successful, incomplete, unsupported, and malformed inputs when extending a parser. Offline tests do not certify all device versions or replace live integration checks.
 
 Use the declared minimum Ruby version for compatibility checks. Document source methods and non-obvious business logic in concise Chinese, preserve public return/error contracts, and never add raw device captures or credentials to examples, fixtures, logs, or release archives.
+
+Run `bundle exec ruby -Ilib benchmark/tables.rb` to compare local parsing and reference-building costs for 500, 2,000, and 5,000 entries. Each case checks its result and reports the fastest of three samples plus allocated objects. These synthetic measurements do not measure device or network performance.
 
 ## Release
 

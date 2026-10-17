@@ -7,6 +7,7 @@ module Vxlan
   Observation = Data.define(:name, :status, :records, :issues, :evidence, :started_at, :completed_at) do
     # 冻结单个维度的记录、状态及诊断元数据。
     def initialize(name:, status:, records: [], issues: [], evidence: [], started_at: nil, completed_at: nil)
+      raise ArgumentError, "Observation name must be a symbol" unless name.is_a?(Symbol)
       raise ArgumentError, "Invalid observation status" unless %i[complete partial failed unsupported not_requested].include?(status)
       raise ArgumentError, "Records must be hashes" unless records.is_a?(Array) && records.all? { |row| row.is_a?(Hash) }
 
@@ -20,5 +21,6 @@ module Vxlan
 
     # 展示对象身份与状态，避免泄露原始回显或凭据。
     def inspect = "#<#{self.class.name} name=#{name} status=#{status} records=#{records.size}>"
+    alias to_s inspect
   end
 end

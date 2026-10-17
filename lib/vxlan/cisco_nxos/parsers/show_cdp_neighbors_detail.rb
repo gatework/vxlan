@@ -43,7 +43,7 @@ module Vxlan
             when /\AMgmt address\(es\):(?:\s+\d+)?\z/i then scope = :management_addresses
             when /\AIP(?:v[46])? Address:\s*(\S+)\z/i
               value = $1
-              if %i[interface_addresses management_addresses].include?(scope) && valid_host?(value)
+              if %i[interface_addresses management_addresses].include?(scope) && ip_address?(value)
                 row[scope] << IPAddr.new(value).to_s
               else
                 reject(number)

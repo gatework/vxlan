@@ -53,6 +53,25 @@ RSpec.describe Vxlan::Collector do
     expect(result.dimensions.fetch(:port_channels).issues.inspect).not_to include("private transport detail")
   end
 
+  it "owns identity and dimension selection before invoking connection callbacks" do
+    dimensions = %i[configuration port_channels]
+    fabric_key = +"LAB"
+    allow(connector).to receive(:open) do |&operation|
+      target[:host].replace("198.51.100.99")
+      fabric_key.replace("CHANGED")
+      dimensions.replace([ :configuration ])
+      operation.call(session)
+    end
+
+    result = collector.collect(connector: connector, target: target, fabric_key: fabric_key, dimensions: dimensions)
+    expect(result).to be_complete
+    expect(result.target[:host]).to eq("192.0.2.10")
+    expect(result.fabric_key).to eq("LAB")
+    expect(result.dimensions.keys).to contain_exactly(:configuration, :port_channels, :collection)
+    expect(session).to have_received(:send_commands).with([ "show port-channel summary" ])
+    expect(target[:host]).to eq("198.51.100.99")
+  end
+
   it "uses complete configuration to distinguish unused vPC and port channels from failed parsing" do
     outputs["show port-channel summary"] = ""
     expect(session).not_to receive(:send_commands).with([ "show vpc brief" ])

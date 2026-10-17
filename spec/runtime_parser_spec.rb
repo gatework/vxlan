@@ -3,7 +3,6 @@
 require_relative "spec_helper"
 require "vxlan/observation"
 require "vxlan/collector"
-require "vxlan/l2route_parser"
 require "vxlan/runtime_parser"
 
 RSpec.describe Vxlan::RuntimeParser do
@@ -15,6 +14,43 @@ RSpec.describe Vxlan::RuntimeParser do
 
   def fixture(name)
     File.read(File.expand_path("fixtures/netstack/#{name}.txt", __dir__))
+  end
+
+  it "rejects inline pagination and terminal controls even in free-form descriptions" do
+    [ "--More--", "-- More --", "hello\0world", "hello\e[31mworld", "hello\bworld" ].each do |description|
+      result = parse(:interfaces, "Interface Status Description\nLo0 up #{description}\nLo1 up SAFE\n")
+      expect(result.status).to eq(:partial)
+      expect(result.issues).to include(include(code: :invalid_terminal_output, line: 2))
+      expect(result.records).to be_empty
+    end
+    expect(parse(:interfaces, "--\nMore\n--\n").status).to eq(:partial)
+  end
+
+  it "removes conflicting port-channel members including wrapped aliases" do
+    header = "Group Port- Type Protocol Member Ports\n"
+    [ "10 Po10(SU) Eth LACP Eth1/1(P) Eth1/1(D) Eth1/2(P)\n",
+      "10 Po10(SU) Eth LACP Eth1/1(P) Eth1/2(P)\n  Ethernet1/1(D)\n" ].each do |rows|
+      result = parse(:port_channels, header + rows)
+      expect(result.status).to eq(:partial)
+      expect(result.records.first[:members]).to eq([ { interface: "Eth1/2", flags: "P" } ])
+      expect(result.issues).to include(include(code: :duplicate_identity))
+    end
+  end
+
+  it "does not attach port-channel continuations across invalid rows or table boundaries" do
+    header = "Group Port- Type Protocol Member Ports\n"
+    [ "broken row\n", header, "Number of port-channels: 1\n", "Eth1/3(P) malformed\n" ].each do |boundary|
+      result = parse(:port_channels, header + "10 Po10(SU) Eth LACP Eth1/1(P)\n" + boundary + "  Eth1/2(P)\n")
+      expect(result.status).to eq(:partial)
+      expect(result.records.first[:members]).to eq([ { interface: "Eth1/1", flags: "P" } ])
+    end
+  end
+
+  it "does not assign the same physical member to two port channels" do
+    result = parse(:port_channels, "Group Port- Type Protocol Member Ports\n" \
+      "10 Po10(SU) Eth LACP Eth1/1(P) Eth1/2(P)\n20 Po20(SU) Eth LACP Ethernet1/1(P) Eth1/3(P)\n")
+    expect(result.status).to eq(:partial)
+    expect(result.records.map { |row| row[:members].map { |member| member[:interface] } }).to eq([ [ "Eth1/2" ], [ "Eth1/3" ] ])
   end
 
   let(:bgp) do

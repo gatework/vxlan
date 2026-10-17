@@ -29,7 +29,7 @@ module Vxlan
             elsif (match = ROW.match(line))
               row = FIELDS.zip(match.captures).to_h.merge(scope)
               row[:priority] = row[:priority].to_i
-              unless valid_host?(row[:neighbor_id]) && valid_host?(row[:address]) && (0..255).cover?(row[:priority]) &&
+              unless ip_address?(row[:neighbor_id]) && ip_address?(row[:address]) && (0..255).cover?(row[:priority]) &&
                 row[:state].match?(/\A(?:DOWN|ATTEMPT|INIT|2WAY|EXSTART|EXCHANGE|LOADING|FULL)\/(?:\s*(?:DR|BDR|DROTHER|-))\z/i)
                 reject(number)
                 next

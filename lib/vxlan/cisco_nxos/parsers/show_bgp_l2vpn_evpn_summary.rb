@@ -19,7 +19,7 @@ module Vxlan
 
         # 解析命令表格行，保留数量及格式错误行诊断。
         def parse_rows(text)
-          scope, prefix_columns, prefix_seen = {}, nil, []
+          scope, prefix_columns, prefix_seen, peers = {}, nil, {}, {}
           lines(text) do |line, number|
             if HEADER.match?(line)
               @header = true
@@ -28,23 +28,23 @@ module Vxlan
               prefix_columns = nil
             elsif (match = /\ABGP router identifier (\S+), local AS number (\S+)/.match(line))
               scope.merge!(router_id: match[1].delete_suffix(","), local_as: match[2])
-              reject(number) unless valid_host?(scope[:router_id]) && scope[:local_as].match?(/\A\d+(?:\.\d+)?\z/)
+              reject(number) unless ip_address?(scope[:router_id]) && scope[:local_as].match?(/\A\d+(?:\.\d+)?\z/)
             elsif line.match?(/\ANeighbor\s+T\s+AS\s+PfxRcd\s+Type-2\s+Type-3\s+Type-4\s+Type-5(?:\s+Type-12)?\z/)
               prefix_columns = line.end_with?("Type-12") ? %i[type2 type3 type4 type5 type12] : %i[type2 type3 type4 type5]
             elsif prefix_columns
               words = line.split
-              peer = @rows.find { |row| row[:peer_ip] == words[0] && row[:vrf] == scope[:vrf] }
+              peer = peers[[ scope[:vrf], scope[:address_family], words[0] ]]
               if words.size == prefix_columns.size + 4 && %w[I E].include?(words[1]) && words.drop(2).all? { |word| word.match?(/\A\d+\z/) } &&
-                peer && !prefix_seen.include?(peer.object_id) && peer[:remote_as] == words[2].to_i && peer[:prefixes_received] == words[3].to_i
+                peer && !prefix_seen.key?(peer.object_id) && peer[:remote_as] == words[2].to_i && peer[:prefixes_received] == words[3].to_i
                 peer[:prefixes_by_type] = prefix_columns.zip(words.drop(4).map(&:to_i)).to_h
-                prefix_seen << peer.object_id
+                prefix_seen[peer.object_id] = true
               else
                 reject(number)
               end
             elsif (match = ROW.match(line))
               row = FIELDS.zip(match.captures).to_h.merge(scope)
               INTEGERS.each { |key| row[key] = row[key].to_i }
-              unless valid_host?(row[:peer_ip]) && row[:version] == 4 && (1..4_294_967_295).cover?(row[:remote_as]) &&
+              unless ip_address?(row[:peer_ip]) && row[:version] == 4 && (1..4_294_967_295).cover?(row[:remote_as]) &&
                 row[:state].match?(/\A(?:\d+|Idle(?: \(Admin\))?|Active|Connect|OpenSent|OpenConfirm|Shutdown)\z/i)
                 reject(number)
                 next
@@ -53,6 +53,8 @@ module Vxlan
               row[:prefixes_received] = row[:state].match?(/\A\d+\z/) ? row[:state].to_i : nil
               row[:state] = "established" if row[:prefixes_received]
               @rows << row
+              # 统计表按完整作用域查找；重复邻居仍由最终身份检查整体隔离。
+              peers[row.values_at(:vrf, :address_family, :peer_ip)] ||= row
             elsif !line.match?(/\A(?:BGP table version is \d+(?:, L2VPN EVPN config peers \d+, capable peers \d+)?|\d+ network entries and \d+ paths using \d+ bytes of memory|BGP attribute entries \[\d+\/\d+\], BGP AS path entries \[\d+\/\d+\]|BGP community entries \[\d+\/\d+\], BGP clusterlist entries \[\d+\/\d+\])\z/i)
               reject(number)
             end

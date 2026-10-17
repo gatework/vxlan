@@ -172,4 +172,14 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
     expect(result.status).to eq(:partial)
     expect(result.issues).to include(include(code: :incomplete_configuration, line: 2))
   end
+  it "keeps a paginated interface capture incomplete while retaining the source evidence" do
+    source = "hostname LEAF\ninterface Vlan10\n  description Users\n  --More--\n  no shutdown\n"
+    result = parser.parse(source, complete: true)
+    capture = parser.cursor.captures_for([ :interfaces, "Vlan10" ]).fetch(0)
+    expect(result.status).to eq(:partial)
+    expect(capture).not_to be_complete
+    expect(capture.content).to include("  --More--\n")
+    expect(capture.data).to include(description: "Users", shutdown: false)
+    expect(parser.cursor.state(3)).to eq(:invalid)
+  end
 end

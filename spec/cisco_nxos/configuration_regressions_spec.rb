@@ -220,4 +220,17 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
       { code: :vlan_vni_without_nve, vni: 10110, vlan_ids: [ 110 ] },
       { code: :nve_l2_without_vlan, vni: 10120 }, { code: :nve_l2_without_evpn, vni: 10120 })
   end
+  it "isolates sequence identities by policy kind and name and resets them between parses" do
+    body = "ip prefix-list SHARED seq 10 permit 192.0.2.0/24\n" \
+      "ip prefix-list OTHER seq 10 permit 198.51.100.0/24\n" \
+      "ipv6 prefix-list SHARED seq 10 permit 2001:db8::/32\n" \
+      "route-map SHARED permit 10\nroute-map OTHER permit 10\n"
+    2.times { expect(parse(body)).to be_complete }
+    result = parse(body + "ip prefix-list SHARED seq 10 deny 203.0.113.0/24\nroute-map SHARED deny 10\n")
+    expect(result.status).to eq(:partial)
+    expect(result.issues).to include(include(code: :invalid_configuration_value), include(code: :duplicate_route_map_entry))
+    expect(result.records.first[:prefix_lists]["SHARED"].map { |entry| entry[:action] }).to eq([ "permit" ])
+    expect(result.records.first[:route_maps]["SHARED"].map { |entry| entry[:action] }).to eq([ "permit", "deny" ])
+    expect(parse(body)).to be_complete
+  end
 end
