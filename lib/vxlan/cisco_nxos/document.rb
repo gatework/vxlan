@@ -15,7 +15,7 @@ module Vxlan
         @banner ||= CtxParser::Banner.new
         return :ignored if @banner.consume(line.text)
 
-        if Terminal.invalid_output?(line.raw)
+        if Terminal.invalid_output?(line.raw, allow_cr_newlines: true)
           issues << { code: :incomplete_configuration, line: line.number }
           return :ignored
         end

@@ -42,6 +42,23 @@ RSpec.describe "Large VXLAN tables" do
     expect(observation.issues.count { |issue| issue[:code] == :unparsed_row }).to eq(3)
   end
 
+  it "parses long inline next-hop lists and rejects malformed separators atomically" do
+    hops = (1..1024).map { |index| "10.0.#{index / 256}.#{index % 256}" }
+    header = "Topology Mac Address Prod Next Hop (s)\n"
+    prefix = "8 0011.2233.4455 BGP "
+    values = hops.map { |hop| "#{hop} (Label: 100008)" }.join(", ")
+    parser = Vxlan::RuntimeParser.new
+    result = parser.parse(:l2route_macs, header + prefix + values + "\n", complete: true)
+    expect(result).to be_complete
+    expect(result.records.first[:next_hops]).to eq(hops.map { |hop| { address: hop, label: 100_008 } })
+    [ values + ",", values + ",, Local", values + " malformed-hop", values + "Local" ].each do |invalid|
+      result = parser.parse(:l2route_macs, header + prefix + invalid + "\n", complete: true)
+      expect(result.status).to eq(:partial)
+      expect(result.records).to be_empty
+      expect(result.issues).to include(include(code: :unparsed_row, line: 2))
+    end
+  end
+
   it "keeps reference order, selectors, deduplication and independent binding arrays" do
     entries = (1..256).to_a.reverse.map do |sequence|
       { sequence: sequence, action: "permit", prefix_list_matches: [

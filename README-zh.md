@@ -72,9 +72,17 @@ observation.records.each { |record| p record }
 
 VLAN ID、VNI、VRF、NVE 成员是不同身份。配置审查通过 VNI 关联 VLAN 映射与 NVE 成员，不推断运行可达性。`BgpNeighbors` 枚举应用 peer-template 继承后的配置邻居，不代表已建立的 BGP 会话。`PrefixListReferences` 表达 route-map 选择器及路由使用方的引用关系，引用本身不能证明路由被接受。
 
+关联诊断包括：显式 EVPN 或 VRF 定义与 NVE 成员二层/三层角色矛盾时的 `vni_layer_conflict`，以及三层 NVE 成员没有对应 VNI 的配置 VRF 时的 `nve_l3_without_vrf`。VLAN 映射本身不能证明二层角色，支持通过 VLAN 承载的三层 VNI。这些诊断仅基于完整配置证据生成，不改变语法解析状态。
+
+路由事实保留协议及所属作用域。`network` 必须位于匹配的 IPv4/IPv6 进程或 VRF 地址族中；邻居策略映射属于邻居或 peer-template 的地址族。不支持的路由地址族及位置错误的设置保持部分证据，不生成对应策略使用方。
+
+prefix-list 或 route-map 在同种类、同名称内出现重复序号时，排除该序号的全部声明，后续声明不能恢复。独立序号仍作为部分事实保留，来源捕获路径使用最终结果索引；部分策略条目不能证明整份策略的行为。
+
 ## 开发与测试
 
 共享类按实际职责命名，平台信息放在命名空间中。直接对应设备命令的解析器保留文件名和类名。
+
+`CiscoNxos::ConfigurationState` 持有单次解析期间的可变事实，`Vxlan::Configuration` 是公开解析入口。原 `CiscoNxos::Configuration` 常量及其 `finish` 方法保留为兼容别名。内部方法名区分文本解析（`parse_next_hops`）、诊断记录（`unparsed_records`）和冲突排除（`exclude_ambiguous_records!`，移除重复身份的全部记录）。
 
 ```sh
 bundle install

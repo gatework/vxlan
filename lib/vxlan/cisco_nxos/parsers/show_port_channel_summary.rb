@@ -16,7 +16,7 @@ module Vxlan
         def parse_rows(text)
           totals = []
           previous = nil
-          lines(text) do |line, number|
+          each_content_line(text) do |line, number|
             issue_count = @issues.size
             if line.match?(/\AGroup\s+Port-(?:Channel)?\s+Type\s+Protocol\s+Member Ports\z/i)
               @header = true
@@ -25,31 +25,31 @@ module Vxlan
               previous = nil
               next
             elsif (match = /\A(\d+)\s+(Po\d+)\(([^\s()]+)\)\s+(\S+)\s+(\S+)\s*(.*)\z/i.match(line))
-              previous = { group: match[1].to_i, interface: match[2], flags: match[3], type: match[4], protocol: match[5], members: members(match[6]) }
+              previous = { group: match[1].to_i, interface: match[2], flags: match[3], type: match[4], protocol: match[5], members: parse_members(match[6]) }
               @rows << previous
             elsif line.match?(/\A(?:Eth(?:ernet)?\S+\([^)]+\)\s*)+\z/i) && previous
-              previous[:members].concat(members(line))
+              previous[:members].concat(parse_members(line))
             elsif (match = /\ANumber of port-channels\s*:\s*(\d+)\z/i.match(line))
               totals << match[1].to_i
               previous = nil
             elsif !line.match?(/\A(?:Flags:\s+D - Down\s+P - Up in port-channel \(members\)|I - Individual\s+H - Hot-standby \(LACP only\)|s - Suspended\s+r - Module-removed|b - BFD Session Wait|S - Switched\s+R - Routed|U - Up \(port-channel\)|p - Up in delay-lacp mode \(member\)|M - Not in use\. Min-links not met)\z/)
-              reject(number)
+              unparsed_records(number)
               previous = nil
             end
             previous = nil if @issues.size > issue_count
           end
           entries = @rows.flat_map { |row| row[:members] }
-          remove_duplicates(entries, nil) { |member| member[:interface].sub(/\AEth(?:ernet)?/i, "Eth") }
+          exclude_ambiguous_records!(entries, nil) { |member| member[:interface].sub(/\AEth(?:ernet)?/i, "Eth") }
           unambiguous = entries.each_with_object({}.compare_by_identity) { |member, index| index[member] = true }
           @rows.each do |row|
             row[:members].select! { |member| unambiguous.key?(member) }
           end
-          totals.each { |total| mismatch(total, @rows.size) }
+          totals.each { |total| count_mismatch(total, @rows.size) }
           @empty = true if totals == [ 0 ] && @rows.empty?
         end
 
         # 将回显的聚合成员归一化为接口身份及状态标志。
-        def members(text)
+        def parse_members(text)
           return [] if text.empty? || text == "--"
           text.split.filter_map do |word|
             match = /\A(Eth(?:ernet)?[\d\/]+)\(([^\s()]+)\)\z/i.match(word)

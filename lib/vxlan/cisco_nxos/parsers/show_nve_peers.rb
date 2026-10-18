@@ -17,13 +17,13 @@ module Vxlan
 
         # 解析命令表格行，保留数量及格式错误行诊断。
         def parse_rows(text)
-          lines(text) do |line, number|
+          each_content_line(text) do |line, number|
             if HEADER.match?(line)
               @header = true
             elsif (match = ROW.match(line)) && ip_address?(match[2])
               @rows << FIELDS.zip(match.captures).to_h.merge(state: match[3].downcase)
             else
-              reject(number)
+              unparsed_records(number)
             end
           end
         end

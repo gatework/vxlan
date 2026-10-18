@@ -229,8 +229,8 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
     result = parse(body + "ip prefix-list SHARED seq 10 deny 203.0.113.0/24\nroute-map SHARED deny 10\n")
     expect(result.status).to eq(:partial)
     expect(result.issues).to include(include(code: :invalid_configuration_value), include(code: :duplicate_route_map_entry))
-    expect(result.records.first[:prefix_lists]["SHARED"].map { |entry| entry[:action] }).to eq([ "permit" ])
-    expect(result.records.first[:route_maps]["SHARED"].map { |entry| entry[:action] }).to eq([ "permit", "deny" ])
+    expect(result.records.first[:prefix_lists]["SHARED"]).to be_empty
+    expect(result.records.first[:route_maps]["SHARED"]).to be_empty
     expect(parse(body)).to be_complete
   end
 end

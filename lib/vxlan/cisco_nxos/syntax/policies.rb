@@ -12,24 +12,46 @@ module Vxlan
           return ignore(block) if /\A(?:ip|ipv6) prefix-list \S+ description .+\z/.match?(block.text)
           match = /\A(?:ip|ipv6) prefix-list (\S+) seq (\d+) (permit|deny) (\S+)(?: ge (\d+))?(?: le (\d+))?\z/.match(block.text)
           raise ArgumentError unless match
-          subnet = network_prefix(match[4], family: family)
-          length, width = IPAddr.new(subnet).prefix, family == "ipv6" ? 128 : 32
-          ge, le = match[5]&.to_i, match[6]&.to_i
-          raise ArgumentError if (ge && !(length..width).cover?(ge)) || (le && !((ge || length)..width).cover?(le))
-          entries = (lists[match[1]] ||= [])
           sequence = integer(match[2], 1..4_294_967_295)
           collection = family == "ipv6" ? :ipv6_prefix_lists : :prefix_lists
-          raise ArgumentError if register_policy_sequence(collection, match[1], sequence)
-          entries << { sequence: sequence, action: match[3], prefix: subnet, ge: ge, le: le }
-          capture(block, entries.last, [ collection, match[1], entries.size - 1 ])
+          entries = (lists[match[1]] ||= [])
+          policy_entry(collection, match[1], sequence, entries, block) do
+            subnet = network_prefix(match[4], family: family)
+            length, width = IPAddr.new(subnet).prefix, family == "ipv6" ? 128 : 32
+            ge, le = match[5]&.to_i, match[6]&.to_i
+            raise ArgumentError if (ge && !(length..width).cover?(ge)) || (le && !((ge || length)..width).cover?(le))
+
+            { sequence: sequence, action: match[3], prefix: subnet, ge: ge, le: le }
+          end
         end
 
-        # 单次解析用索引识别重复序号，避免长策略逐条扫描已有条目。
-        def register_policy_sequence(collection, name, sequence)
+        # 用固定槽位排除冲突序号，避免反复扫描或移动整个策略数组。
+        def policy_entry(collection, name, sequence, entries, block)
           key = [ collection, name, sequence ]
-          duplicate = @policy_sequences.key?(key)
-          @policy_sequences[key] = true
-          duplicate
+          if (previous = @policy_sequences[key])
+            entries[previous.fetch(:index)] = nil
+            @cursor.mark(previous.fetch(:block).index, state: :invalid)
+            code = collection == :route_maps ? :duplicate_route_map_entry : :invalid_configuration_value
+            return issue(block, code)
+          end
+          @policy_sequences[key] = { index: entries.size, block: block }
+          entries << nil
+          entry = yield
+          entries[-1] = entry
+          @policy_sources[entry] = block
+          entry
+        end
+
+        # 冲突处理完毕后按最终索引捕获来源，路径与公开结果保持一致。
+        def finalize_policies(data)
+          %i[prefix_lists ipv6_prefix_lists route_maps].each do |collection|
+            data.fetch(collection).each do |name, entries|
+              entries.compact!
+              entries.each_with_index do |entry, index|
+                capture(@policy_sources.fetch(entry), entry, [ collection, name, index ])
+              end
+            end
+          end
         end
 
         # 解析有序 route-map 条目及策略引用。

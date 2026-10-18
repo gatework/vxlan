@@ -38,6 +38,16 @@ end
   stats = measure(expected: count) { Vxlan::PrefixListReferences.new(configuration).call.fetch("P").size }
   puts JSON.generate(case: "prefix_references", count: count, **stats)
 
+  policies = "hostname LEAF\n" + (1..count).map do |sequence|
+    "ip prefix-list LIST seq #{sequence} permit 192.0.2.0/24\n"
+  end.join
+  policies << (1..count).map { |sequence| "ip prefix-list LIST seq #{sequence} deny 198.51.100.0/24\n" }.join
+  stats = measure(expected: [ :partial, 0 ]) do
+    result = Vxlan::Configuration.new.parse(policies, complete: true)
+    [ result.status, result.records.first.fetch(:prefix_lists).fetch("LIST").size ]
+  end
+  puts JSON.generate(case: "policy_conflicts", count: count, **stats)
+
   l2route = +"Topology Mac Address Prod Next Hop (s)\n8 0011.2233.4455 BGP #{peers.first}\n"
   l2route << peers.drop(1).map { |peer| "  #{peer}\n" }.join
   stats = measure(expected: [ :complete, count ]) do
@@ -45,4 +55,12 @@ end
     [ result.status, result.records.first.fetch(:next_hops).size ]
   end
   puts JSON.generate(case: "l2route_continuations", count: count, **stats)
+
+  inline = "Topology Mac Address Prod Next Hop (s)\n8 0011.2233.4455 BGP " +
+    peers.map { |peer| "#{peer} (Label: 100008)" }.join(", ") + "\n"
+  stats = measure(expected: [ :complete, count ]) do
+    result = parser.parse(:l2route_macs, inline, complete: true)
+    [ result.status, result.records.first.fetch(:next_hops).size ]
+  end
+  puts JSON.generate(case: "l2route_inline", count: count, **stats)
 end

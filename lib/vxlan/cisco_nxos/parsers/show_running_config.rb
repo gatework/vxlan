@@ -24,20 +24,23 @@ module Vxlan
 
         # 解析运行配置，不依赖传输或资产清单。
         def parse_output(text, complete:)
-          configuration = CiscoNxos::Configuration.new
-          @issues = configuration.issues
+          configuration_state = CiscoNxos::ConfigurationState.new
+          @issues = configuration_state.issues
           @conflicts = {}
           @policy_sequences = {}
+          @policy_sources = {}.compare_by_identity
           @sources = {}
+          @global_scopes = {}
           @setting_sources = {}.compare_by_identity
           @configuration_conflict_count = 0
           @feature_sources = []
           @disabled_feature_sources = []
-          data = configuration.data
+          data = configuration_state.data
           read_configuration(text, comments: /\A!/, boundaries: /\Aend\z/, document_class: Document).each { |block| parse_block(block, data) }
           @issues.concat(document.issues)
+          finalize_policies(data)
           # 所有声明读取完毕后再关联模板与网段，避免配置先后顺序改变关联结果。
-          configuration.finish
+          configuration_state.finalize_facts
           @feature_sources.each { |block, feature| capture(block, feature, [ :features, data[:features].index(feature) ]) }
           @disabled_feature_sources.each { |block, feature| capture(block, feature, [ :disabled_features, data[:disabled_features].index(feature) ]) }
           data[:config_digest] = Digest::SHA256.hexdigest(@cursor.lines.map(&:raw).reject { |line| line.strip.empty? || line.lstrip.start_with?("!") }.map(&:rstrip).join("\n"))
@@ -59,9 +62,8 @@ module Vxlan
         def parse_setting(block, data)
           case block.text
           when /\Ahostname (\S+)\z/
-            issue(block, :duplicate_hostname) if data[:hostname]
-            data[:hostname] = $1
-            capture(block, data[:hostname], [ :hostname ])
+            name = $1
+            store_global_scope(data, :hostname, block, empty: nil, duplicate_code: :duplicate_hostname) { name }
           when /\Afeature (.+)\z/
             data[:features] << $1
             @feature_sources << [ block, $1 ]
@@ -71,14 +73,13 @@ module Vxlan
           when /\Ainterface breakout module (\d+) port (\d+) map (\d+g-\d+x)\z/
             module_id, port, mapping = integer($1, 1..65_535), integer($2, 1..65_535), $3
             key = "#{module_id}/#{port}"
-            store(data[:breakouts], key, block, path: [ :breakouts, key ]) { { module_id: module_id, port: port, map: mapping } }
+            store_unique_fact(data[:breakouts], key, block, path: [ :breakouts, key ]) { { module_id: module_id, port: port, map: mapping } }
           when /\Ainterface (\S+)\z/
             name = $1.sub(/\Avlan/i, "Vlan")
             if name.match?(/\Anve\d+\z/i)
-              issue(block, :multiple_nve_interfaces) if data[:nve][:interface]
-              data[:nve] = scope(block, [ :nve ]) { nve(block).merge(interface: name) }
+              store_global_scope(data, :nve, block, empty: { members: {} }, duplicate_code: :multiple_nve_interfaces) { nve(block).merge(interface: name) }
             else
-              store(data[:interfaces], name, block, path: [ :interfaces, name ]) { interface(block) }
+              store_unique_fact(data[:interfaces], name, block, path: [ :interfaces, name ]) { interface(block) }
               settings = data[:interfaces][name]
               # VRF 歧义不能等同于默认 VRF；排除此接口，阻止跨接口借址和网段推导。
               if settings && @setting_sources.fetch(settings, {}).key?(:vrf) && !settings.key?(:vrf)
@@ -97,7 +98,7 @@ module Vxlan
 
             mappings = block.children.select { |child| child.text.start_with?("vn-segment") }
             ids.uniq.each do |id|
-              store(data[:vlan_vnis], id, block, path: [ :vlan_vnis, id ]) do
+              store_unique_fact(data[:vlan_vnis], id, block, path: [ :vlan_vnis, id ]) do
                 raise ArgumentError if mappings.size > 1
                 vni = mappings.first && analyze(mappings.first) { integer(mappings.first.text.delete_prefix("vn-segment "), 1..16_777_215) }
                 raise ArgumentError if vni && ids.uniq.size != 1
@@ -105,32 +106,35 @@ module Vxlan
               end
             end
             block.children.each { |child| ignore(child) unless mappings.include?(child) }
-          when /\Avrf context (\S+)\z/ then store(data[:vrfs], $1, block, path: [ :vrfs, $1 ]) { vrf(block) }
+          when /\Avrf context (\S+)\z/ then store_unique_fact(data[:vrfs], $1, block, path: [ :vrfs, $1 ]) { vrf(block) }
           when "evpn"
             analyze_children(block) do |child|
               if (match = /\Avni (\d+) (l[23])\z/i.match(child.text))
                 id = integer(match[1], 1..16_777_215)
-                store(data[:evpn], id, child, path: [ :evpn, id ]) { vrf(child).merge(type: match[2].downcase) }
+                store_unique_fact(data[:evpn], id, child, path: [ :evpn, id ]) { vrf(child).merge(type: match[2].downcase) }
               else
                 issue(child)
               end
             end
           when /\Avpc domain (\d+)\z/
-            issue(block, :duplicate_vpc_domain) if data[:vpc_domain]
-            id = integer($1, 1..1000)
-            data[:vpc_domain] = scope(block, [ :vpc_domain ]) { vpc(block).merge(id: id) }
+            identifier = $1
+            store_global_scope(data, :vpc_domain, block, empty: nil, duplicate_code: :duplicate_vpc_domain) do
+              id = integer(identifier, 1..1000)
+              vpc(block).merge(id: id)
+            end
           when /\Arouter bgp (\d+)\z/
-            asn = integer($1, 1..4_294_967_295)
-            issue(block, :duplicate_bgp_process) if data[:bgp].any?
-            data[:bgp] = scope(block, [ :bgp ]) { routing(block, :bgp).merge(asn: asn) }
-          when /\Arouter ospf (\S+)\z/ then store(data[:ospf], $1, block, path: [ :ospf, $1 ]) { routing(block, :ospf) }
+            identifier = $1
+            store_global_scope(data, :bgp, block, empty: {}, duplicate_code: :duplicate_bgp_process) do
+              asn = integer(identifier, 1..4_294_967_295)
+              routing(block, :bgp).merge(asn: asn)
+            end
+          when /\Arouter ospf (\S+)\z/ then store_unique_fact(data[:ospf], $1, block, path: [ :ospf, $1 ]) { routing(block, :ospf) }
           when /\Aip prefix-list / then prefix_list(block, data[:prefix_lists], family: "ipv4")
           when /\Aipv6 prefix-list / then prefix_list(block, data[:ipv6_prefix_lists], family: "ipv6")
           when /\Aroute-map (\S+) (permit|deny) (\d+)\z/
             name, action, sequence = $1, $2, integer($3, 1..65_535)
             entries = (data[:route_maps][name] ||= [])
-            issue(block, :duplicate_route_map_entry) if register_policy_sequence(:route_maps, name, sequence)
-            entries << scope(block, [ :route_maps, name, entries.size ]) { route_map(block).merge(action: action, sequence: sequence) }
+            policy_entry(:route_maps, name, sequence, entries, block) { route_map(block).merge(action: action, sequence: sequence) }
           when /\Aip access-list (\S+)\z/
             name = $1
             entries = block.children.filter_map do |child|
@@ -145,7 +149,7 @@ module Vxlan
                 end
               end
             end
-            store(data[:acls], name, block, path: [ :acls, name ]) { entries }
+            store_unique_fact(data[:acls], name, block, path: [ :acls, name ]) { entries }
           when /\Aip route /
             data[:static_routes] << scope(block, [ :static_routes, data[:static_routes].size ]) { static_route(block) }
           when "nv overlay evpn", "no nv overlay evpn"
@@ -210,8 +214,8 @@ module Vxlan
           values = { peer_keepalive: {}, virtual_peer_link: {}, peer_gateway: false, peer_switch: false, layer3_peer_router: false }
           analyze_children(block) do |child|
             case child.text
-            when /\Apeer-keepalive (.+)\z/ then assign(values, :peer_keepalive, pairs($1, %w[destination source vrf]), child)
-            when /\Avirtual peer-link (.+)\z/ then assign(values, :virtual_peer_link, pairs($1, %w[destination source dscp]), child)
+            when /\Apeer-keepalive (.+)\z/ then assign(values, :peer_keepalive, parse_keyword_pairs($1, %w[destination source vrf]), child)
+            when /\Avirtual peer-link (.+)\z/ then assign(values, :virtual_peer_link, parse_keyword_pairs($1, %w[destination source dscp]), child)
             when "peer-gateway" then values[:peer_gateway] = true
             when "peer-switch" then values[:peer_switch] = true
             when "layer3 peer-router" then values[:layer3_peer_router] = true
@@ -224,12 +228,12 @@ module Vxlan
         end
 
         # 提取支持的键值配置对。
-        def pairs(text, allowed)
+        def parse_keyword_pairs(text, allowed)
           words = text.split
           raise ArgumentError unless words.size.even? && (words.each_slice(2).map(&:first) - allowed).empty?
           values = words.each_slice(2).to_h.transform_keys(&:to_sym)
           raise ArgumentError unless values.size == words.size / 2
-          %i[source destination].each { |key| values[key] = address(values[key]) if values[key] }
+          %i[source destination].each { |key| values[key] = ip_address(values[key]) if values[key] }
           integer(values[:dscp], 0..63) if values[:dscp]
           values
         end
@@ -238,7 +242,7 @@ module Vxlan
         def static_route(block)
           words = block.text.split
           raise ArgumentError if words.size < 4
-          { prefix: prefix(words[2]), next_hop: words[3], options: words.drop(4).join(" ") }
+          { prefix: ipv4_prefix(words[2]), next_hop: words[3], options: words.drop(4).join(" ") }
         end
 
         # 解析十进制整数，并校验声明的边界。
@@ -247,13 +251,13 @@ module Vxlan
           CtxParser::Values.integer(value, min: range.min, max: range.max)
         end
 
-        # 校验接口地址，同时保留网络前缀。
-        def address(value)
+        # 校验并归一化 IPv4 或 IPv6 主机地址，不接受网络前缀。
+        def ip_address(value)
           CtxParser::Values.ip_address(value, allow_zone: true)
         end
 
         # 校验网络前缀，不静默修正错误语法。
-        def prefix(value, preserve_host_bits: false) = CtxParser::Values.ipv4_prefix(value, preserve_host_bits: preserve_host_bits)
+        def ipv4_prefix(value, preserve_host_bits: false) = CtxParser::Values.ipv4_prefix(value, preserve_host_bits: preserve_host_bits)
 
         # 单值配置可重复确认，冲突后移除歧义字段并使两端来源失效。
         def assign(values, key, value, block)
@@ -276,15 +280,22 @@ module Vxlan
           issue(block, :conflicting_configuration_value)
         end
 
-        # 保存已解析配置，同时保留其来源。
-        def store(hash, key, block, path:)
+        # 全局单例共享唯一身份规则，歧义后恢复空形状供下游安全读取。
+        def store_global_scope(data, key, block, empty:, duplicate_code:)
+          store_unique_fact(@global_scopes, key, block, path: [ key ], duplicate_code: duplicate_code) { yield }
+        ensure
+          data[key] = @global_scopes.fetch(key, empty)
+        end
+
+        # 保存唯一身份的事实及来源；重复身份整体排除，后续声明不能恢复。
+        def store_unique_fact(hash, key, block, path:, duplicate_code: :duplicate_identity)
           identity = [ hash.object_id, key ]
           if hash.key?(key) || @conflicts[identity]
             @configuration_conflict_count += 1
             @conflicts[identity] = true
             hash.delete(key)
             @cursor.mark(@sources[identity].index, state: :invalid) if @sources[identity]
-            issue(block, :duplicate_identity)
+            issue(block, duplicate_code)
             return
           end
           @sources[identity] = block

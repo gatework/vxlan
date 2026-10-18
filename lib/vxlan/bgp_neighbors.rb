@@ -10,7 +10,7 @@ module Vxlan
       @bgp = bgp
     end
 
-    # 应用继承的对等体模板配置后，逐个返回实际生效的 BGP 邻居。
+    # 合并受支持的对等体模板后，逐个返回配置邻居，不推断运行会话状态。
     def each
       return enum_for(:each) unless block_given?
 
@@ -22,6 +22,9 @@ module Vxlan
           next if inherited_name && !peer_templates.key?(inherited_name)
 
           peer_template = peer_templates.fetch(inherited_name, {})
+          # 模板自身继承尚不受支持，不能把部分模板当作已解析配置。
+          next if peer_template[:inherit_peer]
+
           address_families = peer_template.fetch(:address_families, {}).merge(neighbor_configuration.fetch(:address_families, {})) do |_name, template_family, neighbor_family|
             template_family.merge(neighbor_family.compact).merge(route_maps: template_family.fetch(:route_maps, {}).merge(neighbor_family.fetch(:route_maps, {})))
           end

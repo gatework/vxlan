@@ -14,7 +14,7 @@ module Vxlan
     def call(address_family: "ipv4")
       raise ArgumentError, "Unsupported address family" unless %w[ipv4 ipv6].include?(address_family)
 
-      bindings = route_map_bindings.transform_values(&:uniq)
+      consumers_by_route_map = route_map_consumers.transform_values(&:uniq)
       references = @configuration.fetch(:route_maps).each_with_object({}) do |(name, entries), result|
         entries.sort_by { |entry| entry.fetch(:sequence) }.each do |entry|
           matches = entry.fetch(:prefix_list_matches) do
@@ -22,7 +22,7 @@ module Vxlan
           end
           matches.select { |match| match[:address_family] == address_family }.each do |match|
             route_map_reference = { type: "route_map", name: name, sequence: entry.fetch(:sequence), action: entry.fetch(:action),
-              bindings: bindings.fetch(name, []).dup }
+              bindings: consumers_by_route_map.fetch(name, []).dup }
             route_map_reference[:selector] = match[:selector] unless match[:selector] == "address"
             match.fetch(:names).uniq.each do |prefix_list|
               (result[prefix_list] ||= []) << route_map_reference
@@ -37,7 +37,7 @@ module Vxlan
     private
 
     # 关联关系保留协议、VRF、地址族及对等体，避免共享策略被混用。
-    def route_map_bindings
+    def route_map_consumers
       result = Hash.new { |hash, key| hash[key] = [] }
       bgp = @configuration.fetch(:bgp)
       { "default" => bgp }.merge(bgp.fetch(:vrfs, {})).each do |vrf, settings|

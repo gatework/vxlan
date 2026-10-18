@@ -72,9 +72,17 @@ The lifecycle connector is a host adapter exposing `open { |session| }` (and `pl
 
 VLAN IDs, VNIs, VRFs, and NVE members are separate identities. Configuration review joins VLAN mappings and NVE members by VNI; it does not infer operational reachability. `BgpNeighbors` enumerates configured neighbors after peer-template inheritance, not established BGP sessions. `PrefixListReferences` describes route-map selectors and their routing consumers; those references do not by themselves prove route acceptance.
 
+Association findings include `vni_layer_conflict` for explicit EVPN or VRF definitions that disagree with the NVE member's L2/L3 role, and `nve_l3_without_vrf` for an L3 NVE member without a configured VRF using its VNI. A VLAN mapping alone does not establish an L2 role: VLAN-backed L3 VNIs are supported. These findings are emitted only from complete configuration evidence and do not change the syntax status.
+
+Routing facts retain their protocol and owner scope. Network statements require a matching IPv4/IPv6 process or VRF address family; neighbor policy maps belong to neighbor or peer-template address families. Unsupported routing families and misplaced settings remain partial evidence and produce no corresponding policy consumer.
+
+Repeated prefix-list or route-map sequence identities are excluded within their policy name and kind, including subsequent declarations of that sequence. Independent sequences remain available as partial facts; their source capture paths use the final result indices. These partial policy entries do not establish the complete policy's behavior.
+
 ## Development and tests
 
 Name shared classes by their responsibility and use the namespace for platform context. Preserve filenames and class names that directly match device commands.
+
+`CiscoNxos::ConfigurationState` holds mutable facts during a single parse; `Vxlan::Configuration` is the public parsing entry point. The former `CiscoNxos::Configuration` constant and its `finish` method remain compatible aliases. Internal method names distinguish parsing (`parse_next_hops`), diagnostics (`unparsed_records`), and conflict exclusion (`exclude_ambiguous_records!`, which removes every record with a repeated identity).
 
 ```sh
 bundle install

@@ -2,6 +2,23 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## 0.2.2 (2026-10-18)
+
+### Changed
+
+- Name mutable NX-OS parsing state `CiscoNxos::ConfigurationState`; retain the former `Configuration` constant, require path, and `finish` method as compatible aliases.
+- Clarify internal method names for conflict exclusion, diagnostics, address conversion, route-map consumers, and observation collection without changing parsed record fields.
+
+### Fixed
+
+- Exclude repeated prefix-list and route-map sequence identities, including malformed payloads, without restoring them later; preserve independent entries and capture their final array paths.
+- Validate routing leaf ownership, supported address families, network prefix families, and IPv4 router IDs before accepting facts or projecting policy consumers.
+- Exclude repeated hostname, BGP process, NVE interface, and vPC domain identities without restoring them on later declarations; invalidate their original source captures.
+- Stop configured neighbor and policy projections through unsupported peer-template inheritance chains.
+- Reject bare carriage returns in runtime output while preserving CRLF and existing configuration newline handling.
+- Scan inline EVPN next hops by byte offset to avoid repeated copies of the remaining line.
+- Report explicit EVPN/NVE layer mismatches and L3 NVE members without a matching configured VRF, independently of syntax completeness; retain valid VLAN-backed L3 VNIs.
+
 ## 0.2.1 (2026-10-17)
 
 - Require ctx_parser and ctx_driver 0.2.x so configuration APIs and command capture behavior resolve consistently.

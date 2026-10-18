@@ -11,6 +11,9 @@ module Vxlan
         "host ip" => :host_ip, "prod" => :producer, "flags" => :flags, "seq no" => :sequence,
         "next-hops" => :next_hops, "next hop (s)" => :next_hops, "next hop(s)" => :next_hops }.freeze
       HEADER = /Topology ID|Topology|Mac Address|Host IP|Prod|Flags|Seq No|Next-Hops|Next Hop \(s\)|Next Hop\(s\)/i
+      NEXT_HOP = /\G(?<hop>Ifindex\s+\d+|Local|(?:Eth(?:ernet)?|Po(?:rt-channel)?|nve|Lo(?:opback)?|Vlan|vPC)[\d\/.:-]+|[\da-f:.]+)(?:\s*\(Label:\s*(?<label>\d+)\))?(?=\s|,|\z)/i
+      NEXT_HOP_SEPARATOR = /\G(?:\s*,\s*|\s+)/
+      private_constant :NEXT_HOP, :NEXT_HOP_SEPARATOR
 
       private
 
@@ -44,11 +47,11 @@ module Vxlan
               if fields && line.match?(/\A\d+\s/)
                 values = line.split(/\s+/, fields.size)
                 raise ArgumentError unless values.size == fields.size
-                previous = route(fields.zip(values).to_h, type)
+                previous = parse_route_fields(fields.zip(values).to_h, type)
                 next_hop_index = nil
                 @rows << previous
               elsif previous && source.match?(/\A\s+/)
-                hops = next_hops(line)
+                hops = parse_next_hops(line)
                 # 首条续行建立索引，后续仅追加新下一跳；非法续行不会改动已有事实。
                 unless next_hop_index
                   previous[:next_hops].uniq!
@@ -73,8 +76,8 @@ module Vxlan
 
       # 汇总已解析记录，并报告未解决或不完整的来源状态。
       def finish(complete)
-        @totals.each { |count| mismatch(count, @rows.size) }
-        remove_duplicates(@rows, %i[topology_id mac host_ip producer])
+        @totals.each { |count| count_mismatch(count, @rows.size) }
+        exclude_ambiguous_records!(@rows, %i[topology_id mac host_ip producer])
         @issues << { code: :contradictory_empty } if @empty && @rows.any?
         @issues << { code: :missing_completeness_evidence } if @rows.empty? && !@empty && @totals != [ 0 ]
         @issues << { code: :output_incomplete } unless complete
@@ -82,47 +85,53 @@ module Vxlan
       end
 
       # 归一化单条 EVPN 路由及回显的身份字段。
-      def route(values, type)
-        values[:topology_id] = number(values[:topology_id])
+      def parse_route_fields(values, type)
+        values[:topology_id] = parse_uint32(values[:topology_id])
         raise ArgumentError unless values[:mac].match?(/\A(?:[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\z/i)
         values[:mac] = CtxParser::Values.mac_address(values[:mac])
-        values[:sequence] = number(values[:sequence]) if values[:sequence]
-        values[:host_ip] = ip_address(values.fetch(:host_ip)) if type == :mac_ip
-        values[:next_hops] = next_hops(values.fetch(:next_hops))
+        values[:sequence] = parse_uint32(values[:sequence]) if values[:sequence]
+        values[:host_ip] = parse_ip_address(values.fetch(:host_ip)) if type == :mac_ip
+        values[:next_hops] = parse_next_hops(values.fetch(:next_hops))
         values
       end
 
       # 归一化 EVPN 路由关联的全部下一跳。
-      def next_hops(text)
+      def parse_next_hops(text)
         result = []
-        until text.empty?
-          match = /\A(?<hop>Ifindex\s+\d+|Local|(?:Eth(?:ernet)?|Po(?:rt-channel)?|nve|Lo(?:opback)?|Vlan|vPC)[\d\/.:-]+|[\da-f:.]+)(?:\s*\(Label:\s*(?<label>\d+)\))?(?=\s|,|\z)/i.match(text)
+        # 字节视图让偏移定位保持线性；逐项扫描，不重复复制剩余长行。
+        encoding = text.encoding
+        text = text.b
+        offset = 0
+        while offset < text.bytesize
+          match = NEXT_HOP.match(text, offset)
           raise ArgumentError unless match
-          token = match[:hop]
+          token = match[:hop].force_encoding(encoding)
           value = case token
           when /\ALocal\z/i then { local: true }
-          when /\AIfindex\s+(\d+)\z/i then { ifindex: number($1) }
+          when /\AIfindex\s+(\d+)\z/i then { ifindex: parse_uint32($1) }
           when /\A(?:Eth|Po|nve|Lo|Vlan|vPC)/i then { interface: token }
-          else { address: ip_address(token) }
+          else { address: parse_ip_address(token) }
           end
-          value[:label] = number(match[:label]) if match[:label]
+          value[:label] = parse_uint32(match[:label]) if match[:label]
           result << value
-          remainder = text[match.end(0)..]
-          break if remainder.empty?
-          text = remainder.sub(/\A(?:\s*,\s*|\s+)/, "")
-          raise ArgumentError if text.empty? || text.start_with?(",")
+          offset = match.end(0)
+          break if offset == text.bytesize
+
+          separator = NEXT_HOP_SEPARATOR.match(text, offset)
+          raise ArgumentError unless separator && separator.end(0) < text.bytesize
+          offset = separator.end(0)
         end
         raise ArgumentError if result.empty?
         result
       end
 
       # 解析数值测量，不将未知文本转换为零。
-      def number(value)
+      def parse_uint32(value)
         CtxParser::Values.integer(value, max: UINT32.end)
       end
 
       # 归一化主机地址，保留 IPv4 与 IPv6 语义。
-      def ip_address(value)
+      def parse_ip_address(value)
         CtxParser::Values.ip_address(value, allow_zone: true)
       end
     end

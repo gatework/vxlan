@@ -19,7 +19,7 @@ module Vxlan
         # 解析命令表格行，保留数量及格式错误行诊断。
         def parse_rows(text)
           scope, totals = {}, []
-          lines(text) do |line, number|
+          each_content_line(text) do |line, number|
             if HEADER.match?(line)
               @header = true
             elsif (match = /\AOSPF Process ID (\S+) VRF (\S+)\z/i.match(line))
@@ -31,15 +31,15 @@ module Vxlan
               row[:priority] = row[:priority].to_i
               unless ip_address?(row[:neighbor_id]) && ip_address?(row[:address]) && (0..255).cover?(row[:priority]) &&
                 row[:state].match?(/\A(?:DOWN|ATTEMPT|INIT|2WAY|EXSTART|EXCHANGE|LOADING|FULL)\/(?:\s*(?:DR|BDR|DROTHER|-))\z/i)
-                reject(number)
+                unparsed_records(number)
                 next
               end
               @rows << row.merge(state: row[:state].downcase.delete(" "))
             else
-              reject(number)
+              unparsed_records(number)
             end
           end
-          totals.each { |count| mismatch(count, @rows.size) }
+          totals.each { |count| count_mismatch(count, @rows.size) }
           @empty = true if @rows.empty? && totals == [ 0 ]
         end
       end

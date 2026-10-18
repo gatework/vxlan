@@ -53,7 +53,7 @@ module Vxlan
         @issues << { code: :format_unrecognized } unless @header || @empty
         @issues << { code: :contradictory_empty } if @empty && @rows.any?
         @issues << { code: :output_incomplete } unless complete
-        remove_duplicates(@rows, self.class::IDENTITY) if self.class::IDENTITY
+        exclude_ambiguous_records!(@rows, self.class::IDENTITY) if self.class::IDENTITY
         CtxParser::Result.new(status: @issues.empty? ? :complete : :partial, records: @rows, issues: @issues)
       end
 
@@ -71,7 +71,7 @@ module Vxlan
       end
 
       # 逐行提供有效表格内容，并记录明确空表证据。
-      def lines(text, separators: false)
+      def each_content_line(text, separators: false)
         text.each_line.with_index(1) do |source, number|
           line = source.strip
           next if line.empty? || (!separators && line.match?(/\A[-=+\s]+\z/))
@@ -84,12 +84,12 @@ module Vxlan
       end
 
       # 记录声明总数与实际解析数量不一致的情况。
-      def mismatch(expected, observed)
+      def count_mismatch(expected, observed)
         @issues << { code: :count_mismatch, expected: expected, observed: observed } unless expected == observed
       end
 
-      # 记录不支持或无效的行，不将其接受为完整证据。
-      def reject(number)
+      # 追加行诊断；调用方负责决定是否继续处理当前记录。
+      def unparsed_records(number)
         @issues << { code: :unparsed_row, line: number }
       end
 
@@ -98,8 +98,8 @@ module Vxlan
         CtxParser::Values.ip_address?(value, allow_zone: true)
       end
 
-      # 返回可作为权威清单的结果前，先识别身份冲突。
-      def remove_duplicates(rows, fields, &identity)
+      # 原地排除重复身份的全部记录，不选取其中任意一条。
+      def exclude_ambiguous_records!(rows, fields, &identity)
         identities = CtxParser::Records.new(rows, identity: fields, &identity)
         return unless identities.duplicates?
         rows.replace(identities.unambiguous)

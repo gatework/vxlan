@@ -15,6 +15,7 @@ module Vxlan
 
       nve_members_by_vni = @configuration.fetch(:nve).fetch(:members, {})
       vlan_mappings_by_vni = @configuration.fetch(:vlan_vnis).group_by { |_vlan, vni| vni }
+      vrf_vnis = @configuration.fetch(:vrfs).values.filter_map { |settings| settings[:vni] }.to_set
       evpn_vnis = @configuration.fetch(:evpn)
       findings = []
       vlan_mappings_by_vni.each do |vni, entries|
@@ -23,14 +24,24 @@ module Vxlan
         findings << { code: :vlan_vni_without_nve, vni: vni, vlan_ids: entries.map(&:first).sort }
       end
       nve_members_by_vni.each do |vni, settings|
-        next if settings[:associate_vrf]
+        if settings[:associate_vrf]
+          findings << { code: :nve_l3_without_vrf, vni: vni } unless vrf_vnis.include?(vni)
+          next
+        end
 
         findings << { code: :nve_l2_without_vlan, vni: vni } unless vlan_mappings_by_vni.key?(vni)
         if @configuration[:nv_overlay_evpn] && !evpn_vnis.key?(vni)
           findings << { code: :nve_l2_without_evpn, vni: vni }
         end
       end
-      evpn_vnis.each_key { |vni| findings << { code: :evpn_vni_without_nve, vni: vni } unless nve_members_by_vni.key?(vni) }
+      evpn_vnis.each do |vni, settings|
+        member = nve_members_by_vni[vni]
+        if !member
+          findings << { code: :evpn_vni_without_nve, vni: vni }
+        elsif (settings[:type] == "l3") != member[:associate_vrf]
+          findings << { code: :vni_layer_conflict, vni: vni, evpn_type: settings[:type] }
+        end
+      end
       @configuration.fetch(:vrfs).each do |name, settings|
         next unless settings[:vni]
         member = nve_members_by_vni[settings[:vni]]

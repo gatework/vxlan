@@ -15,7 +15,7 @@ module Vxlan
         # 解析当前命令的记录，保留无法识别行的诊断。
         def parse_rows(text)
           row, scope, totals = nil, nil, []
-          lines(text, separators: true) do |line, number|
+          each_content_line(text, separators: true) do |line, number|
             if line.match?(/\A[-=+\s]+\z/)
               scope = nil
               next
@@ -33,11 +33,11 @@ module Vxlan
               next
             end
             unless row
-              reject(number)
+              unparsed_records(number)
               next
             end
             case line
-            when /\A--More--/i then reject(number)
+            when /\A--More--/i then unparsed_records(number)
             when /\ASystem Name:\s*(\S.*)\z/i then row[:neighbor_name] = $1
             when /\AInterface address\(es\):(?:\s+\d+)?\z/i then scope = :interface_addresses
             when /\AMgmt address\(es\):(?:\s+\d+)?\z/i then scope = :management_addresses
@@ -46,13 +46,13 @@ module Vxlan
               if %i[interface_addresses management_addresses].include?(scope) && ip_address?(value)
                 row[scope] << IPAddr.new(value).to_s
               else
-                reject(number)
+                unparsed_records(number)
               end
             when /\APlatform:\s*(.+?),\s*Capabilities:\s*(.+)\z/i
               row.merge!(platform: $1, capabilities: $2)
               scope = nil
             when /\AInterface:\s*(\S+),\s*Port ID \(outgoing port\):\s*(\S.*)\z/i
-              reject(number) if row.key?(:interface)
+              unparsed_records(number) if row.key?(:interface)
               row.merge!(interface: $1, neighbor_interface: $2)
               scope = nil
             when /\AHoldtime:\s*(\d+) sec\z/i then row[:holdtime] = $1.to_i
@@ -66,11 +66,11 @@ module Vxlan
               row[:attributes][$1.downcase.tr(" ", "_").to_sym] = $2
               scope = nil
             else
-              scope == :version ? row[:version] = [ row[:version], line ].reject(&:empty?).join("\n") : reject(number)
+              scope == :version ? row[:version] = [ row[:version], line ].reject(&:empty?).join("\n") : unparsed_records(number)
             end
           end
           @rows << row if row
-          totals.each { |total| mismatch(total, @rows.size) }
+          totals.each { |total| count_mismatch(total, @rows.size) }
           @empty = true if totals == [ 0 ] && @rows.empty?
           @rows.reject! do |entry|
             entry[:neighbor_name] ||= entry[:device_id].sub(/\([^)]*\)\z/, "").split(".").first

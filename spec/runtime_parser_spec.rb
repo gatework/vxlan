@@ -26,6 +26,19 @@ RSpec.describe Vxlan::RuntimeParser do
     expect(parse(:interfaces, "--\nMore\n--\n").status).to eq(:partial)
   end
 
+  it "rejects bare carriage returns before they can join authoritative runtime fields" do
+    source = "Interface Status Description\nLo0 up SAFE\n"
+    [ source.sub("Lo0", "Lo\r0"), source.sub("SAFE", "SA\rFE"), source.sub("SAFE\n", "SAFE\r") ].each do |output|
+      result = parse(:interfaces, output)
+      expect(result.status).to eq(:partial)
+      expect(result.records).to be_empty
+      expect(result.issues).to include(include(code: :invalid_terminal_output, line: 2))
+    end
+    crlf = parse(:interfaces, source.gsub("\n", "\r\n"))
+    expect(crlf).to be_complete
+    expect(crlf.records).to eq(parse(:interfaces, source).records)
+  end
+
   it "removes conflicting port-channel members including wrapped aliases" do
     header = "Group Port- Type Protocol Member Ports\n"
     [ "10 Po10(SU) Eth LACP Eth1/1(P) Eth1/1(D) Eth1/2(P)\n",

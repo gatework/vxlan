@@ -34,7 +34,7 @@ module Vxlan
       begin
         connector.open do |session|
           reader = CtxDriver::Reader.new(session: session, clock: @clock)
-          if (code = prepare(reader))
+          if (code = prepare_terminal(reader))
             dimensions.each { |name| observations[name] = failure(name, code) }
             observations[:collection] = failure(:collection, code)
             next
@@ -45,7 +45,7 @@ module Vxlan
               observations[name] = Observation.new(name: name, status: :complete, completed_at: @clock.call,
                 issues: [ { code: :vpc_not_configured } ])
             else
-              observations[name] = read(reader, name, config, profile)
+              observations[name] = collect_observation(reader, name, config, profile)
             end
           end
           session_finished = true
@@ -72,7 +72,7 @@ module Vxlan
     private
 
     # 采集设备回显前，禁用分页并归一化终端宽度。
-    def prepare(reader)
+    def prepare_terminal(reader)
       PREPARATION_COMMANDS.each do |command|
         capture = reader.read(command)
         return capture.failure.fetch(:code) unless capture.success?
@@ -81,7 +81,7 @@ module Vxlan
     end
 
     # 解析失败限定在单条查询内；Reader 负责传输与回执校验。
-    def read(reader, name, configuration, profile)
+    def collect_observation(reader, name, configuration, profile)
       command = profile.command(name)
       capture = reader.read(command)
       metadata = { started_at: capture.started_at, completed_at: capture.completed_at, evidence: capture.evidence }

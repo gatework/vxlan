@@ -129,4 +129,64 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
       expect(result.records.first.dig(:interfaces, "Ethernet1/2", :mtu)).to eq(1500)
     end
   end
+
+  it "excludes repeated global identities permanently and preserves independent scopes" do
+    cases = [
+      [ "hostname FIRST", "hostname SECOND", :hostname, nil, :duplicate_hostname ],
+      [ "router bgp 65000\n  neighbor 192.0.2.1\n    remote-as 65100", "router bgp 65001\n  neighbor 192.0.2.2\n    remote-as 65200", :bgp, {}, :duplicate_bgp_process ],
+      [ "interface nve1\n  source-interface loopback0\n  member vni 10010", "interface nve2\n  source-interface loopback1\n  member vni 10020", :nve, { members: {} }, :multiple_nve_interfaces ],
+      [ "vpc domain 1\n  peer-switch", "vpc domain 2\n  peer-gateway", :vpc_domain, nil, :duplicate_vpc_domain ]
+    ]
+    cases.each do |first, second, key, empty_value, issue_code|
+      [ [ first, second, first ], [ second, first, second ] ].each do |commands|
+        prefix = key == :hostname ? "" : "hostname LEAF\n"
+        source = prefix + commands.join("\n") + "\ninterface Ethernet1/1\n  mtu 1500\n"
+        result = parser.parse(source, complete: true)
+        configuration = result.records.first
+        expect(result.status).to eq(:partial), key.inspect
+        expect(configuration.fetch(key)).to eq(empty_value), key.inspect
+        expect(result.issues).to include(include(code: issue_code))
+        expect(parser.cursor.state(prefix.lines.size)).to eq(:invalid)
+        expect(parser.cursor.captures_for([ key ])).not_to be_empty
+        expect(parser.cursor.captures_for([ key ]).map(&:complete?)).to eq([ false ])
+        expect(configuration.dig(:interfaces, "Ethernet1/1", :mtu)).to eq(1500)
+        expect(Vxlan::BgpNeighbors.new(configuration.fetch(:bgp)).to_a).to be_empty
+        expect(Vxlan::PrefixListReferences.new(configuration).call).to be_empty
+        expect(Vxlan::ConfigurationReview.new(configuration).call(complete: true)).to be_empty
+      end
+    end
+  end
+
+  it "does not project neighbors or policy bindings through unsupported template inheritance" do
+    source = "hostname LEAF\nrouter bgp 65000\n" \
+      "  template peer BASE\n    remote-as 65100\n" \
+      "  template peer CHILD\n    inherit peer BASE\n    remote-as 65200\n" \
+      "    address-family ipv4 unicast\n      route-map POLICY in\n" \
+      "  neighbor 192.0.2.1\n    inherit peer CHILD\n" \
+      "  neighbor 192.0.2.2\n    remote-as 65300\n" \
+      "route-map POLICY permit 10\n  match ip address prefix-list LIST\n"
+    result = parser.parse(source, complete: true)
+    configuration = result.records.first
+    expect(result.status).to eq(:partial)
+    expect(result.issues).to include(include(code: :unsupported_peer_inheritance))
+    expect(Vxlan::BgpNeighbors.new(configuration.fetch(:bgp)).map { |_vrf, peer, _values| peer }).to eq([ "192.0.2.2" ])
+    expect(Vxlan::PrefixListReferences.new(configuration).call.fetch("LIST").first[:bindings]).to be_empty
+  end
+
+  it "keeps global identities excluded when either declaration has an invalid identifier", :aggregate_failures do
+    [ [ "router bgp 65000", "router bgp 4294967296", :bgp, {} ],
+      [ "vpc domain 1", "vpc domain 1001", :vpc_domain, nil ] ].each do |valid, invalid, key, empty_value|
+      [ [ valid, invalid ], [ invalid, valid ], [ valid, invalid, valid ], [ invalid, valid, valid ] ].each do |commands|
+        aggregate_failures([ key, commands.first ].inspect) do
+          source = "hostname LEAF\n" + commands.join("\n") + "\ninterface Ethernet1/1\n  mtu 1500\n"
+          result = parser.parse(source, complete: true)
+          expect(result.status).to eq(:partial)
+          expect(result.records.first.fetch(key)).to eq(empty_value)
+          expect(result.records.first.dig(:interfaces, "Ethernet1/1", :mtu)).to eq(1500)
+          expect(parser.cursor.state(1)).to eq(:invalid)
+          expect(parser.cursor.captures_for([ key ]).all? { |capture| !capture.complete? }).to be(true)
+        end
+      end
+    end
+  end
 end

@@ -5,18 +5,28 @@ module Vxlan
     module Syntax
       # 路由作用域保留邻居、模板、VRF 与地址族的归属。
       module Routing
+        BGP_LEAF = /\A(?:no )?(?:remote-as|inherit peer|update-source|route-map|next-hop-self|route-reflector-client|advertise-pip|advertise l2vpn evpn|send-community|retain route-target)\b/
+        private_constant :BGP_LEAF
+
         private
 
         # 解析支持的路由作用域及协议关系。
-        def routing(block, protocol, context = :process)
+        def routing(block, protocol, context = :process, family: nil, parent: nil)
           values = { vrfs: {}, neighbors: {}, templates: {}, address_families: {}, redistribute: [] }
           analyze_children(block) do |child|
+            next issue(child) if protocol != :bgp && BGP_LEAF.match?(child.text)
+            next issue(child) unless routing_leaf?(child.text, protocol, context, family, parent)
+
             case child.text
             when /\Avrf (\S+)\z/ then routing_scope(values, :vrfs, $1, child, protocol, context)
             when /\Atemplate peer (\S+)\z/ then routing_scope(values, :templates, $1, child, protocol, context)
             when /\Aneighbor (\S+)\z/ then routing_scope(values, :neighbors, $1, child, protocol, context)
             when /\Aaddress-family (.+)\z/ then routing_scope(values, :address_families, $1, child, protocol, context)
-            when /\Arouter-id (\S+)\z/ then assign(values, :router_id, address($1), child)
+            when /\Arouter-id (\S+)\z/
+              router_id = ip_address($1)
+              raise ArgumentError unless IPAddr.new(router_id).ipv4?
+
+              assign(values, :router_id, router_id, child)
             when /\Aremote-as (\S+)\z/
               value = $1
               integer(value, 1..4_294_967_295) unless %w[internal external].include?(value)
@@ -42,9 +52,12 @@ module Vxlan
               assign(values, :extended_community, enabled, child) if kind
             when /\Anetwork (\S+)(?: route-map (\S+))?\z/
               subnet, route_map = $1, $2
-              raise ArgumentError unless protocol == :bgp
+              unless protocol == :bgp && context == :address_families && %i[process vrfs].include?(parent) &&
+                  /\Aipv[46] (?:unicast|multicast)\z/.match?(family)
+                next issue(child)
+              end
 
-              (values[:networks] ||= []) << { prefix: network_prefix(subnet), route_map: route_map }.compact
+              (values[:networks] ||= []) << { prefix: network_prefix(subnet, family: family.split.first), route_map: route_map }.compact
             when /\Aredistribute (\S+)(?: (?!route-map\b)(\S+))?(?: route-map (\S+))?\z/
               values[:redistribute] << { protocol: $1, process: $2, route_map: $3 }.compact
             when /\Aretain route-target (all|route-map \S+)\z/ then assign(values, :retain_route_target, $1, child)
@@ -56,18 +69,44 @@ module Vxlan
           values
         end
 
+        # 已建模叶子必须位于其使用方作用域，不能只因文字可解析就接受事实。
+        def routing_leaf?(text, protocol, context, family, parent)
+          process_family = context == :address_families && %i[process vrfs].include?(parent)
+          case text
+          when /\A(?:remote-as|inherit peer|update-source)\b/
+            protocol == :bgp && %i[neighbors templates].include?(context)
+          when /\Aroute-map\b/
+            protocol == :bgp && context == :address_families && %i[neighbors templates].include?(parent)
+          when /\Aredistribute\b/
+            if protocol == :ospf
+              %i[process vrfs].include?(context)
+            else
+              process_family && /\Aipv[46] (?:unicast|multicast)\z/.match?(family)
+            end
+          when /\Aretain route-target\b/
+            protocol == :bgp && process_family && family == "l2vpn evpn"
+          when /\Arouter-id\b/
+            %i[process vrfs].include?(context)
+          else true
+          end
+        end
+
         # 只进入当前事实模型可表达的子作用域，阻止任意递归及跨协议误归属。
         def routing_scope(values, kind, name, block, protocol, context)
           supported = case kind
           when :vrfs then context == :process
           when :templates then protocol == :bgp && context == :process
           when :neighbors then protocol == :bgp && %i[process vrfs].include?(context)
-          when :address_families then protocol == :bgp && %i[process vrfs neighbors templates].include?(context)
+          when :address_families
+            protocol == :bgp && %i[process vrfs neighbors templates].include?(context) &&
+              /\A(?:ipv[46] (?:unicast|multicast)|vpnv[46] unicast|l2vpn evpn)\z/.match?(name)
           end
           return issue(block) unless supported
 
           conflicts_before = @configuration_conflict_count
-          store(values[kind], name, block, path: @source_path + [ kind, name ]) { routing(block, protocol, kind) }
+          store_unique_fact(values[kind], name, block, path: @source_path + [ kind, name ]) do
+            routing(block, protocol, kind, family: kind == :address_families ? name : nil, parent: context)
+          end
           # 邻居及模板的子地址族冲突也使继承身份失效；保留同进程其他邻居。
           if protocol == :bgp && %i[neighbors templates].include?(kind) && @configuration_conflict_count > conflicts_before
             exclude_conflicted_scope(values[kind], name, block)

@@ -8,7 +8,9 @@ module Vxlan
       private_constant :INVALID
 
       # 检查原始正文，避免 strip 或字段解析先吞掉控制字符。
-      def self.invalid_output?(text) = INVALID.match?(text)
+      def self.invalid_output?(text, allow_cr_newlines: false)
+        INVALID.match?(text) || (!allow_cr_newlines && /\r(?!\n)/.match?(text))
+      end
     end
   end
 end

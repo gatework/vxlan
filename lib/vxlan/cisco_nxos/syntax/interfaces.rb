@@ -12,7 +12,7 @@ module Vxlan
           values = { addresses: [], acl_bindings: {}, anycast: false }
           analyze_children(block) do |child|
             case child.text
-            when /\Aip address (\S+)(?: secondary)?\z/ then values[:addresses] << prefix($1, preserve_host_bits: true)
+            when /\Aip address (\S+)(?: secondary)?\z/ then values[:addresses] << ipv4_prefix($1, preserve_host_bits: true)
             when /\Aip unnumbered (loopback\d+)\z/i then assign(values, :unnumbered_interface, $1, child)
             when /\Avrf member (\S+)\z/ then assign(values, :vrf, $1, child)
             when /\Aip router ospf (\S+) area (\S+)\z/ then assign(values, :ospf, "#{$1} area #{$2}", child)
@@ -48,7 +48,7 @@ module Vxlan
               analyze_children(child) { |setting| nve_member(setting, member) }
               raise ArgumentError if member[:replication] == "bgp" && member[:multicast_group]
 
-              store(values[:members], id, child, path: @source_path + [ :members, id ]) { member }
+              store_unique_fact(values[:members], id, child, path: @source_path + [ :members, id ]) { member }
             when /\Adescription (.+)\z/ then assign(values, :description, $1, child)
             when /\Aglobal mcast-group (\S+)\z/ then assign(values, :multicast_group, multicast_address($1), child)
             when /\Asource-interface (\S+)\z/ then assign(values, :source_interface, $1, child)
@@ -80,7 +80,7 @@ module Vxlan
 
         # 校验 VXLAN 复制使用的组播地址。
         def multicast_address(value)
-          group = address(value)
+          group = ip_address(value)
           raise ArgumentError unless IPAddr.new("224.0.0.0/4").include?(group)
 
           group
