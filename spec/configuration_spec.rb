@@ -59,6 +59,70 @@ RSpec.describe Vxlan::Configuration do
     expect(observation.records.first[:features]).to eq([ "bgp" ])
   end
 
+  it "rejects malformed anycast gateway MACs without losing independent facts" do
+    [ "garbage", "0200.0000.000", "0200.0000.000g", "0200-0000.0001", "02:00:00:00:00:01:02" ].each do |mac|
+      observation = parse("fabric forwarding anycast-gateway-mac #{mac}\ninterface Ethernet1/1\n  mtu 1500\n")
+
+      expect(observation.status).to eq(:partial), mac
+      expect(observation.issues).to include(code: :invalid_configuration_value, line: 2)
+      expect(observation.records.first).not_to have_key(:anycast_mac)
+      expect(observation.records.first.dig(:interfaces, "Ethernet1/1", :mtu)).to eq(1500)
+    end
+  end
+
+  it "preserves the public representation of valid anycast gateway MACs" do
+    %w[0200.ABCD.0001 02:00:ab:cd:00:01 0200-abcd-0001 0200abcd0001].each do |mac|
+      observation = parse("fabric forwarding anycast-gateway-mac #{mac}\n")
+
+      expect(observation).to be_complete
+      expect(observation.records.first[:anycast_mac]).to eq(mac)
+    end
+  end
+
+  it "does not certify malformed static route next hops as complete facts" do
+    %w[garbage 999.0.2.1 2001:db8::1 192.0.2.1/24].each do |hop|
+      observation = parse("ip route 10.1.0.0/16 #{hop}\n")
+      expect(observation.status).to eq(:partial)
+      expect(observation.records.first[:static_routes]).to be_empty
+    end
+  end
+
+  it "rejects malformed optional IPv4 next hops after an output interface" do
+    [ "Ethernet1/2 999.0.2.1", "ethernet 1/2 2001:db8::1", "Vlan100 192.0.2.1/24", "port-channel 10 garbage" ].each do |hop|
+      observation = parse("ip route 10.1.0.0/16 #{hop}\ninterface Ethernet1/1\n  mtu 1500\n")
+
+      expect(observation.status).to eq(:partial), hop
+      expect(observation.issues).to include(code: :invalid_configuration_value, line: 2)
+      expect(observation.records.first[:static_routes]).to be_empty
+      expect(observation.records.first.dig(:interfaces, "Ethernet1/1", :mtu)).to eq(1500)
+    end
+  end
+
+  it "preserves interface route options with and without an optional next-hop address" do
+    [
+      [ "Ethernet1/2 name UPLINK tag 42 200", "Ethernet1/2", "name UPLINK tag 42 200" ],
+      [ "ethernet 1/2 192.0.2.1 name UPLINK", "ethernet", "1/2 192.0.2.1 name UPLINK" ],
+      [ "Vlan100 200", "Vlan100", "200" ],
+      [ "port-channel 10 track 12", "port-channel", "10 track 12" ],
+      [ "Ethernet1/2 vrf BLUE", "Ethernet1/2", "vrf BLUE" ]
+    ].each do |hop, next_hop, options|
+      observation = parse("ip route 10.1.0.0/16 #{hop}\n")
+
+      expect(observation).to be_complete, hop
+      expect(observation.records.first[:static_routes]).to eq([
+        { prefix: "10.1.0.0/16", next_hop: next_hop, options: options }
+      ])
+    end
+  end
+
+  it "preserves documented interface and IPv4 static next hops" do
+    [ "192.0.2.1", "ethernet 1/2 192.0.2.1", "Ethernet1/2", "port-channel 10", "Vlan100", "null 0" ].each do |hop|
+      observation = parse("ip route 10.1.0.0/16 #{hop}\n")
+      expect(observation).to be_complete
+      expect(observation.records.first[:static_routes].first[:next_hop]).to eq(hop.split.first)
+    end
+  end
+
   [ :before, :after ].each do |position|
     it "accepts the NX-OS VLAN summary #{position} the individual VLAN definitions" do
       definition = "vlan 110\n  name BLUE\n  vn-segment 10110\nvlan 120\n  name STORAGE\n"

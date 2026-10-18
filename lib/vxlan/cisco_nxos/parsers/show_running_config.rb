@@ -111,7 +111,7 @@ module Vxlan
             analyze_children(block) do |child|
               if (match = /\Avni (\d+) (l[23])\z/i.match(child.text))
                 id = integer(match[1], 1..16_777_215)
-                store_unique_fact(data[:evpn], id, child, path: [ :evpn, id ]) { vrf(child).merge(type: match[2].downcase) }
+                store_unique_fact(data[:evpn], id, child, path: [ :evpn, id ]) { vrf(child, address_families: false).merge(type: match[2].downcase) }
               else
                 issue(child)
               end
@@ -156,7 +156,9 @@ module Vxlan
             assign(data, :nv_overlay_evpn, block.text == "nv overlay evpn", block)
             capture(block, data[:nv_overlay_evpn], [ :nv_overlay_evpn ]) if data.key?(:nv_overlay_evpn)
           when /\Afabric forwarding anycast-gateway-mac (\S+)\z/
-            assign(data, :anycast_mac, $1, block)
+            mac = $1
+            CtxParser::Values.mac_address(mac)
+            assign(data, :anycast_mac, mac, block)
             capture(block, data[:anycast_mac], [ :anycast_mac ]) if data.key?(:anycast_mac)
           when /\A(?:interface|vlan|vrf|router|vpc|evpn|feature|ip prefix-list|ipv6 prefix-list|route-map)\b/ then issue(block)
           when /\A(?:%|ERROR:|Invalid command|--More--)/i then issue(block, :invalid_command_output)
@@ -166,7 +168,7 @@ module Vxlan
         end
 
         # 解析 VRF 定义及其 VNI 或 route-target 关联。
-        def vrf(block)
+        def vrf(block, address_families: true)
           values = { route_targets: [], routes: [] }
           analyze_children(block) do |child|
             case child.text
@@ -175,6 +177,8 @@ module Vxlan
             when /\Aroute-target / then values[:route_targets] << route_target(child)
             when /\Aaddress-family (.+)\z/
               family = $1
+              next issue(child) unless address_families && %w[ipv4\ unicast ipv6\ unicast].include?(family)
+
               targets_start = values[:route_targets].size
               exports_start = values.fetch(:exports, []).size
               analyze_children(child) do |setting|
@@ -242,7 +246,29 @@ module Vxlan
         def static_route(block)
           words = block.text.split
           raise ArgumentError if words.size < 4
+          validate_static_next_hop(words.drop(3))
+
           { prefix: ipv4_prefix(words[2]), next_hop: words[3], options: words.drop(4).join(" ") }
+        end
+
+        # IP route 的下一跳是 IPv4 或出接口；接口分词形式不能误当作地址拒绝。
+        def validate_static_next_hop(words)
+          hop = words.first
+          interface = /\A(?:ethernet\d+(?:\/\d+){1,2}(?:\.\d+)?|port-channel\d+(?:\.\d+)?|vlan\d+|mgmt\d+|null0)\z/i
+          offset = if interface.match?(hop)
+            1
+          elsif /\A(?:ethernet|port-channel|vlan|mgmt|null)\z/i.match?(hop)
+            raise ArgumentError unless words[1] && interface.match?(hop + words[1])
+
+            2
+          else
+            0
+          end
+          hop = words[offset]
+          # 出接口之后可直接跟已有选项；其余词须先作为 IPv4 下一跳校验。
+          return if offset.positive? && (hop.nil? || /\A(?:name|tag|track|vrf|\d+)\z/.match?(hop))
+
+          raise ArgumentError unless IPAddr.new(ip_address(hop)).ipv4?
         end
 
         # 解析十进制整数，并校验声明的边界。

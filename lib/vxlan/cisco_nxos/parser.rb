@@ -25,7 +25,7 @@ module Vxlan
           return CtxParser::Result.new(status: :partial, issues: [ { code: :invalid_encoding } ])
         end
         if Terminal.invalid_output?(text)
-          line = text.each_line.with_index(1).find { |source, _number| Terminal.invalid_output?(source) }.last
+          line = text.each_line("\n").with_index(1).find { |source, _number| Terminal.invalid_output?(source) }.last
           return CtxParser::Result.new(status: :partial, issues: [ { code: :invalid_terminal_output, line: line } ])
         end
         if self.class::UNSUPPORTED&.match?(text)
@@ -72,7 +72,7 @@ module Vxlan
 
       # 逐行提供有效表格内容，并记录明确空表证据。
       def each_content_line(text, separators: false)
-        text.each_line.with_index(1) do |source, number|
+        text.each_line("\n").with_index(1) do |source, number|
           line = source.strip
           next if line.empty? || (!separators && line.match?(/\A[-=+\s]+\z/))
           if self.class::EMPTY && line.match?(/\A(?:No #{self.class::EMPTY}(?: found)?|0 #{self.class::EMPTY})\.?\z/i)

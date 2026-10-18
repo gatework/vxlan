@@ -2,6 +2,16 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## 0.2.3 (2026-10-18)
+
+- Validate optional IPv4 next hops following static-route output interfaces without changing route fields or option text.
+
+- Clear Bundler bootstrap variables when verifying packages in an isolated gem installation, including calls made through bundle exec.
+
+- Reject unsupported or misplaced VRF address families before projecting targets and policy consumers, and validate anycast gateway MAC values and static-route next-hop forms.
+
+- Parse runtime line boundaries and wrapped records independently of the host Ruby input/output record separators.
+
 ## 0.2.2 (2026-10-18)
 
 ### Changed

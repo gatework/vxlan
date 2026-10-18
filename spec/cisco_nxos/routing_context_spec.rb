@@ -81,4 +81,54 @@ RSpec.describe "NX-OS routing context" do
       expect(result.issues).to include(include(code: :invalid_configuration_value))
     end
   end
+
+  it "withholds VRF targets and export consumers from unsupported address families" do
+    [ "ipv4 multicast", "ipv6 multicast", "l2vpn evpn", "vpnv4 unicast", "ipv4 unicast extra", "invented family" ].each do |family|
+      result = parse("vrf context BLUE\n  address-family #{family}\n    route-target both auto evpn\n" \
+        "    export vrf default map POLICY\nroute-map POLICY permit 10\n  match ip address prefix-list LIST\n")
+
+      expect(result.status).to eq(:partial), family
+      expect(result.issues).to include(include(code: :unsupported_configuration, line: 3))
+      expect(result.records.first.dig(:vrfs, "BLUE", :route_targets)).to be_empty
+      expect(result.records.first.dig(:vrfs, "BLUE", :exports)).to be_nil
+      expect(Vxlan::PrefixListReferences.new(result.records.first).call.fetch("LIST").first[:bindings]).to be_empty
+    end
+  end
+
+  it "keeps valid VRF family siblings independent from unsupported and nested family scopes" do
+    result = parse(<<~CONFIG)
+      vrf context BLUE
+        address-family ipv4 multicast
+          address-family ipv4 unicast
+            export vrf default map REJECTED
+        address-family ipv4 unicast
+          address-family ipv6 unicast
+            export vrf default map REJECTED
+          route-target import 65000:10 evpn
+          export vrf default map V4
+        address-family ipv6 unicast
+          route-target export 65000:20 evpn
+          export vrf default map V6
+      route-map REJECTED permit 10
+        match ip address prefix-list LIST
+    CONFIG
+
+    expect(result.status).to eq(:partial)
+    vrf = result.records.first.dig(:vrfs, "BLUE")
+    expect(vrf[:route_targets]).to eq([
+      { direction: "import", target: "65000:10", evpn: true, address_family: "ipv4 unicast" },
+      { direction: "export", target: "65000:20", evpn: true, address_family: "ipv6 unicast" }
+    ])
+    expect(vrf.fetch(:exports).map { |entry| entry[:route_map] }).to eq(%w[V4 V6])
+    expect(Vxlan::PrefixListReferences.new(result.records.first).call.fetch("LIST").first[:bindings]).to be_empty
+  end
+
+  it "does not interpret VRF address families inside EVPN VNI definitions" do
+    result = parse("evpn\n  vni 10010 l2\n    address-family ipv4 unicast\n" \
+      "      route-target both auto evpn\n      export vrf default map POLICY\n")
+
+    expect(result.status).to eq(:partial)
+    expect(result.records.first.dig(:evpn, 10010, :route_targets)).to be_empty
+    expect(result.records.first.dig(:evpn, 10010, :exports)).to be_nil
+  end
 end

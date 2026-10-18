@@ -30,7 +30,7 @@ module Vxlan
                 end
                 row.merge!(consistency: member[1], reason: member[2], active_vlans_summary: member[3])
               elsif match[4].match?(/\A[\d, .-]+\z/)
-                row[:active_vlans_summary] = rest.join
+                row[:active_vlans_summary] = rest.join("")
               else
                 unparsed_records(number)
                 next

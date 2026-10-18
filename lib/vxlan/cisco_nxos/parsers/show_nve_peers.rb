@@ -31,7 +31,7 @@ module Vxlan
         # 归一化平台值，同时保留未知或不支持的状态。
         def normalize(text)
           output = []
-          super.each_line do |line|
+          super.each_line("\n") do |line|
             tail, previous = line.strip, output.last&.strip
             header = previous && previous.end_with?("Route") && tail == "r-Mac"
             mac = previous && tail.match?(/\A[\da-f]{4}\.[\da-f]{4}\z/i) && previous.match?(/\Anve\d+\s+\d+(?:\.\d+){3}\s+(?:Up|Down)\s+\S+\s+\S+\s+[\da-f]{4}\.\z/i)
@@ -41,7 +41,7 @@ module Vxlan
               output << line
             end
           end
-          output.join
+          output.join("")
         end
       end
     end

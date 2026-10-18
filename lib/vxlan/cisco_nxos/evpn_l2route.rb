@@ -22,7 +22,7 @@ module Vxlan
         type = self.class::TYPE
         @totals = []
         fields = previous = next_hop_index = nil
-        text.each_line.with_index(1) do |source, number|
+        text.each_line("\n").with_index(1) do |source, number|
           line = source.strip
           next if line.empty? || line.match?(/\A[-=\s]+\z/) || line.match?(/\A(?:Flags\s*-\s*)?(?:\([A-Za-z0-9]+\):[A-Za-z0-9 ,\/-]+\s*)+\z/)
           if line.match?(/\ATopology\b/i)

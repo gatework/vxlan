@@ -67,14 +67,14 @@ module Vxlan
         # 归一化平台值，同时保留未知或不支持的状态。
         def normalize(text)
           output = []
-          super.each_line do |line|
+          super.each_line("\n") do |line|
             if output.last&.strip&.end_with?("State/") && line.strip == "PfxRcd"
               output[-1] = output.last.rstrip + line.strip + "\n"
             else
               output << line
             end
           end
-          output.join
+          output.join("")
         end
       end
     end
