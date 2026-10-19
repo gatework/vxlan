@@ -52,6 +52,23 @@ observation.records.each { |record| p record }
 # 单个已解析邻居仅是一项观测，不能证明整个 Fabric 健康。
 ```
 
+## 正式命令行入口
+
+安装包提供 `vxlan collect` 和 `vxlan parse`，正式实现在 `lib/vxlan/cli/`；`examples/` 保留薄入口与离线演示，两种入口共用实现。
+
+```sh
+gem install vxlan
+# 联网采集与读取 .env 所需的可选依赖：
+gem install net-connector -v '~> 0.14.1'
+gem install dotenv -v '~> 3.0'
+vxlan --help
+vxlan collect --init --non-interactive
+vxlan collect --inventory-only
+vxlan parse --file running.cfg --complete
+```
+
+正式命令默认使用启动目录的 `vxlan.yml`、`.env`、`vxlans/`；YAML 相对路径基于配置文件所在目录，CLI 与进程环境路径基于启动目录。源码示例保持项目根目录约定。模板仅存于 `lib/vxlan/cli/templates/`，初始化保留已有文件，不写入 gem 安装目录。离线解析与帮助不加载连接器。详见[使用说明](bin/README.md)。
+
 ## 公开契约与限制
 
 `Configuration.new.parse(text, complete: false)` 返回配置观察。`RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` 返回具名运行观察。`ParserRegistry.fetch(platform, model:)` 提供按命令解析的声明式策略。
@@ -66,7 +83,11 @@ observation.records.each { |record| p record }
 
 详细厂商语义、历史验证记录和 Motor 专用集成说明保留在[架构参考](docs/architecture-zh.md)。其中宿主集成代码需要 Motor，不属于独立 gem API。适配层位于 [Motor 仓库](https://github.com/gatework/motor/tree/main/backend/lib) 的 `backend/lib/baseline`、`backend/lib/vxlan` 和 `backend/lib/wireless`。
 
-生命周期 connector 是宿主适配器，提供 `open { |session| }`，VXLAN 和 Wireless 还要求 `platform`；原生 `Net::Connector::Base` 实例并不提供这一宿主生命周期协议。已连接的原生会话可传入 `CtxDriver::Reader` 或 `CtxChecker::Collector#collect_session`，不会隐式连接或重试。
+生命周期 connector 是宿主适配器，提供 `open { |session| }`，VXLAN 和 Wireless 还要求 `platform`；原生 `Net::Connector::Base` 实例并不提供这一宿主生命周期协议。已连接的原生会话可传入 `CtxDriver::Reader` 或 `Vxlan::Collector#collect_session`，不会隐式连接或重试。
+
+原生会话由宿主用 `native.with_operation(:vxlan)` 包围整次采集，防止其他任务插入命令。需要在收尾失败后保留事实时，在操作块内登记 snapshot，分别处理关闭或租约退出故障。批量 CLI 拥有此生命周期，报告分别记录已采集证据与文件保存状态；私有目录及取消行为见[CLI 使用说明](bin/README.md)。
+
+`Collector#collect_session(session:, target:, fabric_key:, platform: :cisco_nxos, model: nil, dimensions:)` 可借用已打开的驱动会话，不负责连接、关闭、提权或重连。选中配置时先采集配置，再处理依赖配置的运行维度；结果顺序仍与请求相同。
 
 ## 领域术语
 

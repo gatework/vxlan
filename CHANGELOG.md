@@ -2,6 +2,26 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## Unreleased
+
+- Align CLI help, plan/no-progress aliases, initialization guidance and operator documentation with net-connector examples; preserve invocation-directory defaults.
+
+- Add the installable `vxlan collect` / `vxlan parse` command, sharing implementation with thin source examples.
+- Move CLI implementation and templates out of examples; preserve source defaults and use user working directories for installed commands.
+- Remove superseded examples/support files and duplicate example templates.
+
+- Load existing environment defaults before initializing host configuration, honoring the selected config path without copying credentials.
+- Preserve batch summaries and pending targets on scheduler failures; retain an incomplete execution status even after all device reports were saved, without exposing exception details.
+- Mark every requested dimension failed when a connector returns without providing a session, instead of reporting empty evidence as complete.
+
+- Collect native NX-OS observations under one operation lease without redundant session wrapping; preserve acquired facts on finalization failure.
+- Reject prematurely exited/killed collection workers and join all owned threads before propagating failure.
+- Register acquired results before publication, distinguish saved reports from acquired evidence, and preserve cancellation when summary publication also fails.
+- Reject non-private or symlink report roots; sync published directory entries and report safe publication phases without exposing raw filesystem errors.
+
+- Add borrowed-session collection with configuration-first dependent observations; retain requested dimension order.
+- Add host examples for configurable batch collection, safe per-device reports and offline file parsing. Keep net-connector and dotenv outside core runtime dependencies.
+
 ## 0.2.3 (2026-10-18)
 
 - Validate optional IPv4 next hops following static-route output interfaces without changing route fields or option text.

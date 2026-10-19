@@ -18,36 +18,13 @@ module Vxlan
 
     # 通过调用方持有的连接器顺序采集请求维度。
     def collect(connector:, target:, fabric_key:, model: nil, dimensions: COMMANDS.keys)
-      raise ArgumentError, "Target must be a hash" unless target.is_a?(Hash)
-
-      unless dimensions.is_a?(Array) && dimensions.any? && dimensions.uniq == dimensions && (dimensions - COMMANDS.keys).empty?
-        raise ArgumentError, "Unknown or duplicate VXLAN dimensions"
-      end
-      target = CtxParser::Immutable.copy(target)
-      fabric_key = CtxParser::Immutable.copy(fabric_key)
-      dimensions = dimensions.dup.freeze
-      raise ArgumentError, "VXLAN requires Cisco NX-OS" unless connector.platform.to_s == "cisco_nxos"
-      profile = ParserRegistry.fetch(connector.platform, model: model)
+      target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, connector.platform, model)
 
       observations = {}
       session_finished = false
       begin
         connector.open do |session|
-          reader = CtxDriver::Reader.new(session: session, clock: @clock)
-          if (code = prepare_terminal(reader))
-            dimensions.each { |name| observations[name] = failure(name, code) }
-            observations[:collection] = failure(:collection, code)
-            next
-          end
-          dimensions.each do |name|
-            config = observations[:configuration]
-            if name == :vpc && !reader.failure && unconfigured?(name, config)
-              observations[name] = Observation.new(name: name, status: :complete, completed_at: @clock.call,
-                issues: [ { code: :vpc_not_configured } ])
-            else
-              observations[name] = collect_observation(reader, name, config, profile)
-            end
-          end
+          observations.merge!(read_dimensions(session, dimensions, profile))
           session_finished = true
         end
       rescue StandardError => error
@@ -57,6 +34,57 @@ module Vxlan
         dimensions.each { |name| observations[name] ||= failure(name, code) }
         observations[:collection] = failure(:collection, session_finished ? :session_close_failed : code)
       end
+      # 连接器正常返回也不等于已提供会话；缺少回调必须保留全部请求的失败事实。
+      unless session_finished || observations.key?(:collection)
+        dimensions.each { |name| observations[name] = failure(name, :session_not_opened) }
+        observations[:collection] = failure(:collection, :session_not_opened)
+      end
+      snapshot(target, fabric_key, observations)
+    end
+
+    # 借用已打开的会话；调用方负责连接和关闭，本方法不重连、不提权。
+    def collect_session(session:, target:, fabric_key:, platform: :cisco_nxos, model: nil, dimensions: COMMANDS.keys)
+      target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, platform, model)
+      snapshot(target, fabric_key, read_dimensions(session, dimensions, profile))
+    end
+
+    private
+
+    # 连接前固定请求数据，生命周期入口和借用会话入口共用相同校验。
+    def request(target, fabric_key, dimensions, platform, model)
+      raise ArgumentError, "Target must be a hash" unless target.is_a?(Hash)
+      unless dimensions.is_a?(Array) && dimensions.any? && dimensions.uniq == dimensions && (dimensions - COMMANDS.keys).empty?
+        raise ArgumentError, "Unknown or duplicate VXLAN dimensions"
+      end
+      raise ArgumentError, "VXLAN requires Cisco NX-OS" unless platform.to_s == "cisco_nxos"
+
+      [ CtxParser::Immutable.copy(target), CtxParser::Immutable.copy(fabric_key), dimensions.dup.freeze,
+        ParserRegistry.fetch(platform, model: model) ]
+    end
+
+    # 配置先于依赖它的运行查询读取；结果维度仍保持请求顺序。
+    def read_dimensions(session, dimensions, profile)
+      observations = {}
+      reader = CtxDriver::Reader.new(session: session, clock: @clock)
+      if (code = prepare_terminal(reader))
+        dimensions.each { |name| observations[name] = failure(name, code) }
+        observations[:collection] = failure(:collection, code)
+        return observations
+      end
+      ordered = dimensions.include?(:configuration) ? [ :configuration, *dimensions.reject { |name| name == :configuration } ] : dimensions
+      ordered.each do |name|
+        config = observations[:configuration]
+        observations[name] = if name == :vpc && !reader.failure && unconfigured?(name, config)
+          Observation.new(name: name, status: :complete, completed_at: @clock.call, issues: [ { code: :vpc_not_configured } ])
+        else
+          collect_observation(reader, name, config, profile)
+        end
+      end
+      dimensions.to_h { |name| [ name, observations.fetch(name) ] }
+    end
+
+    # 汇总证据完整性，不将查询成功解释为 Fabric 健康。
+    def snapshot(target, fabric_key, observations)
       status = if observations.values.all?(&:complete?)
         :complete
       elsif observations.values.any? { |value| %i[complete partial].include?(value.status) }
@@ -65,11 +93,8 @@ module Vxlan
         :failed
       end
       observations[:collection] ||= Observation.new(name: :collection, status: status, completed_at: @clock.call)
-      Snapshot.new(target: target,
-        fabric_key: fabric_key, dimensions: observations, observed_at: @clock.call)
+      Snapshot.new(target: target, fabric_key: fabric_key, dimensions: observations, observed_at: @clock.call)
     end
-
-    private
 
     # 采集设备回显前，禁用分页并归一化终端宽度。
     def prepare_terminal(reader)

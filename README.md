@@ -52,6 +52,23 @@ observation.records.each { |record| p record }
 # 单个已解析邻居仅是一项观测，不能证明整个 Fabric 健康。
 ```
 
+## Command line
+
+The gem installs `vxlan`; its implementation lives in `lib/vxlan/cli/`. The scripts in `examples/` are thin callers of the same implementation, plus a self-contained offline demonstration.
+
+```sh
+gem install vxlan
+# Optional dependencies for live collection and .env files:
+gem install net-connector -v '~> 0.14.1'
+gem install dotenv -v '~> 3.0'
+vxlan --help
+vxlan collect --init --non-interactive
+vxlan collect --inventory-only
+vxlan parse --file running.cfg --complete
+```
+
+The installed command uses `vxlan.yml`, `.env`, and `vxlans/` in the invocation directory. Relative YAML paths resolve beside the config file; explicit CLI and process environment paths resolve from the invocation directory. Source examples retain their project-relative defaults. Initialization preserves existing files. Templates have one source under `lib/vxlan/cli/templates/`. Offline parsing and help do not load the connector. See [the CLI guide](bin/README.md) for configuration, filtering, reports, and exit codes.
+
 ## Public contract and limits
 
 `Configuration.new.parse(text, complete: false)` returns a configuration observation. `RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` returns a named runtime observation. `ParserRegistry.fetch(platform, model:)` exposes a declared profile for command-specific parsing.
@@ -60,13 +77,17 @@ Complete transport is necessary but insufficient for complete parsing: unknown s
 
 `Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` uses a host-supplied connector; device identity, credentials, persistence, reconciliation, and concurrency policy belong to the host. This gem includes no fabric planner, provisioning engine, Rails models, or `Vxlan::Sync`. Loading or running the offline example does not access a device.
 
+`Collector#collect_session(session:, target:, fabric_key:, platform: :cisco_nxos, model: nil, dimensions:)` borrows an already opened driver session (including the optional native adapter) without opening, closing, escalating privilege or retrying it. When configuration is selected, it is read before dimensions that depend on it; result order still matches the requested dimensions.
+
 The collector copies target identity, fabric identity, and dimension selection before opening the connection. `Observation` names must be symbols; each `Snapshot` dimension must hold an `Observation` with a matching name. Both objects use their metadata-only `inspect` representation for string interpolation.
 
 Conflicting singleton configuration values are excluded and reported as partial evidence, including interface, NVE, routing, VRF, and vPC settings. An interface with a conflicting VRF, or a BGP neighbor or template with conflicting settings, is excluded before deriving addresses or inherited facts; unresolved peer templates produce no neighbor projection. Unsupported routing nesting stays partial. Runtime output containing pagination or terminal editing controls returns `partial` with no records because its row boundaries cannot be trusted. Port-channel member conflicts are excluded across both wrapped lines and separate groups.
 
 Detailed vendor behavior, historical validation notes, and Motor-only integration are preserved in [the architecture reference](docs/architecture-zh.md). Host integration examples in that reference require Motor; they are not standalone gem APIs. Motor adapters live under `backend/lib/baseline`, `backend/lib/vxlan`, and `backend/lib/wireless` in the [Motor repository](https://github.com/gatework/motor/tree/main/backend/lib).
 
-The lifecycle connector is a host adapter exposing `open { |session| }` (and `platform` for VXLAN and Wireless). It is distinct from a native `Net::Connector::Base` device instance. Borrowed native sessions are accepted by `CtxDriver::Reader` and `CtxChecker::Collector#collect_session`; they are never implicitly connected or retried.
+The lifecycle connector is a host adapter exposing `open { |session| }` (and `platform` for VXLAN and Wireless). It is distinct from a native `Net::Connector::Base` device instance. Borrowed native sessions are accepted by `CtxDriver::Reader` and `Vxlan::Collector#collect_session`; they are never implicitly connected or retried.
+
+For native sessions, the host holds `native.with_operation(:vxlan)` around the full collection so other tasks cannot interleave commands. Register the snapshot inside that block if it must survive a later lease/close failure; the host reports finalization errors separately. The collection CLI owns this lifecycle; its reports distinguish acquired evidence from confirmed file publication. See [the CLI guide](bin/README.md) for private output directories and cancellation behavior.
 
 ## Domain vocabulary
 

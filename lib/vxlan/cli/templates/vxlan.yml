@@ -1,0 +1,31 @@
+# 公开配置；凭据仅在环境中。CLI > YAML > 环境默认值。
+fabric: default
+parallel: 4
+directory: vxlans
+# 默认采集全部维度；大表可以按需启用，单设备命令始终顺序执行。
+dimensions:
+  - configuration
+  - cdp_neighbors
+  - nve_peers
+  - nve_vnis
+  - bgp_neighbors
+  - ospf_neighbors
+  - vpc
+  - interfaces
+  - port_channels
+  - mac_addresses
+  - l2route_macs
+  - l2route_mac_ips
+ssh:
+  host_key_policy: strict
+  command_timeout: 60
+  login_timeout: 15
+# 只操作此处明确列出的设备，不扫描。替换为实际设备后取消注释。
+devices: []
+#  - host: 192.0.2.10
+#    name: LEAF-01
+#    model: N9K-C93180YC-FX
+#  - host: 192.0.2.11
+#    name: LEAF-02
+# 可选：复用 net-connector 的 Netdisco YAML；与非空 devices 互斥。
+# netdisco_config: /path/to/net-connector/examples/backup.yml

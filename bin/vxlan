@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# 源码直接执行与 gem 安装入口共用相邻 lib，不依赖启动目录。
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
+require "vxlan/cli"
+
+exit Vxlan::CLI.run(ARGV)
