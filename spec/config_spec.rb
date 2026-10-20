@@ -2,9 +2,9 @@
 
 require_relative "spec_helper"
 require "vxlan/observation"
-require "vxlan/configuration"
+require "vxlan/config"
 
-RSpec.describe Vxlan::Configuration do
+RSpec.describe Vxlan::Config do
   subject(:parser) { described_class.new }
 
   def parse(body, complete: true)

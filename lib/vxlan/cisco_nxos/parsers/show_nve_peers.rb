@@ -10,7 +10,7 @@ module Vxlan
         EMPTY = "peers"
         IDENTITY = %i[interface peer_ip].freeze
         HEADER = /\AInterface\s+Peer-IP\s+State\s+LearnType\s+Uptime\s+Router-Mac\z/i
-        ROW = /\A(nve\d+)\s+(\d+(?:\.\d+){3})\s+(Up|Down)\s+(\S+)\s+(\S+)\s+([\da-f]{4}(?:\.[\da-f]{4}){2})\z/i
+        ROW = /\A(nve\d+)\s+(\d+(?:\.\d+){3})\s+(Up|Down)\s+(\S+)\s+(\S+)\s+([\da-f]{4}(?:\.[\da-f]{4}){2}|n\/a)\z/i
         FIELDS = %i[interface peer_ip state learn_type uptime router_mac].freeze
 
         private
@@ -21,7 +21,8 @@ module Vxlan
             if HEADER.match?(line)
               @header = true
             elsif (match = ROW.match(line)) && ip_address?(match[2])
-              @rows << FIELDS.zip(match.captures).to_h.merge(state: match[3].downcase)
+              @rows << FIELDS.zip(match.captures).to_h.merge(state: match[3].downcase,
+                router_mac: match[6].casecmp?("n/a") ? nil : match[6])
             else
               unparsed_records(number)
             end

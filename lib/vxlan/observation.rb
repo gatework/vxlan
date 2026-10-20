@@ -22,5 +22,8 @@ module Vxlan
     # 展示对象身份与状态，避免泄露原始回显或凭据。
     def inspect = "#<#{self.class.name} name=#{name} status=#{status} records=#{records.size}>"
     alias to_s inspect
+
+    # PP 默认展开 Data 成员，显式沿用脱敏展示。
+    def pretty_print(printer) = printer.text(inspect)
   end
 end

@@ -23,7 +23,8 @@ module Vxlan
             elsif (match = ROW.match(line))
               row = FIELDS.zip(match.captures).to_h.compact
               row[:vni] = row[:vni].to_i
-              unless (1..16_777_215).cover?(row[:vni]) && (!row[:flags] || %w[SA S-ND SU Xconn MS-IR HYB].include?(row[:flags]))
+              unless (1..16_777_215).cover?(row[:vni]) && multicast_group?(row[:multicast_group]) &&
+                  (!row[:flags] || %w[SA S-ND SU Xconn MS-IR HYB].include?(row[:flags]))
                 unparsed_records(number)
                 next
               end
@@ -32,6 +33,13 @@ module Vxlan
               unparsed_records(number)
             end
           end
+        end
+
+        # 此列也承载单播复制标记；其余值必须是 IPv4 组播主机地址。
+        def multicast_group?(value)
+          return true if %w[UnicastBGP UnicastStatic n/a].include?(value)
+
+          ip_address?(value) && IPAddr.new("224.0.0.0/4").include?(value)
         end
       end
     end

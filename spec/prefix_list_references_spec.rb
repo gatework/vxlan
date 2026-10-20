@@ -2,12 +2,12 @@
 
 require_relative "spec_helper"
 require "vxlan/observation"
-require "vxlan/configuration"
+require "vxlan/config"
 require "vxlan/prefix_list_references"
 
 RSpec.describe Vxlan::PrefixListReferences do
   it "connects a prefix list to every VRF exporting through its route map" do
-    configuration = Vxlan::Configuration.new.parse(<<~CONFIG, complete: true).records.first
+    configuration = Vxlan::Config.new.parse(<<~CONFIG, complete: true).records.first
       hostname LEAF-01
       ip prefix-list GLOBAL seq 10 permit 192.0.2.0/24
       route-map EXPORT_GLOBAL permit 10
@@ -30,7 +30,7 @@ RSpec.describe Vxlan::PrefixListReferences do
     ])
   end
   it "retains network and inherited neighbor consumers with explicit direction overrides" do
-    parsed = Vxlan::Configuration.new.parse(<<~CONFIG, complete: true)
+    parsed = Vxlan::Config.new.parse(<<~CONFIG, complete: true)
       hostname LEAF-01
       ip prefix-list SOURCES seq 10 permit 192.0.2.0/24
       route-map INBOUND permit 10

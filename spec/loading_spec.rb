@@ -6,25 +6,19 @@ require "rbconfig"
 require "json"
 
 RSpec.describe "Standalone vxlan command parsers" do
-  [ %w[configuration configuration_state], %w[configuration_state configuration] ].each do |paths|
-    it "preserves configuration state loading and finalization through #{paths.join(' then ')}" do
+    it "loads and finalizes mutable configuration facts through ConfigurationState" do
       script = <<~RUBY
-        ARGV.each { |path| require "vxlan/cisco_nxos/\#{path}" }
-        abort "Configuration alias mismatch" unless Vxlan::CiscoNxos::Configuration.equal?(Vxlan::CiscoNxos::ConfigurationState)
-        state = Vxlan::CiscoNxos::Configuration.new
+        require "vxlan/cisco_nxos/configuration_state"
+        state = Vxlan::CiscoNxos::ConfigurationState.new
         state.data[:hostname] = "LEAF"
-        facts = state.finish
+        facts = state.finalize_facts
         abort "Unexpected finalization" unless facts.equal?(state.data) && facts[:hostname] == "LEAF" && facts[:segments] == [] && state.issues.empty?
-        canonical = Vxlan::CiscoNxos::ConfigurationState.new
-        canonical.data[:hostname] = "LEAF"
-        abort "Finalization alias mismatch" unless canonical.finalize_facts == facts && canonical.issues.empty?
       RUBY
       _stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-rbundler/setup",
-        "-I", File.expand_path("../lib", __dir__), "-e", script, *paths)
+        "-I", File.expand_path("../lib", __dir__), "-e", script)
 
       expect(status).to be_success, stderr
     end
-  end
 
   parsers = {
     "show_ip_ospf_neighbors" => [ "ShowIpOspfNeighbors", "Total number of neighbors: 0\n" ],

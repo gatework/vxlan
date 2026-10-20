@@ -9,7 +9,7 @@ RSpec.describe "Host record separators" do
       require "vxlan"
       samples = {
         nve_peers: "Interface Peer-IP State LearnType Uptime Router-Mac\nnve1 192.0.2.2 Up CP 1d 0011.2233.4455\n",
-        bgp_neighbors: "Neighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n192.0.2.2 4 65002 1 1 1 0 0 1d 5\n",
+        bgp_neighbors: "BGP summary information for VRF default, address family L2VPN EVPN\nNeighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n192.0.2.2 4 65002 1 1 1 0 0 1d 5\n",
         vpc: "vPC domain id : 7\nPeer status : peer adjacency formed ok\nvPC keep-alive status : peer is alive\nConfiguration consistency status : success\nid Port Status Active vlans\n1 Po100 up 110,  120\n",
         l2route_macs: "Topology Mac Address Prod Next-Hops\n100 0011.2233.4455 BGP 192.0.2.2\n"
       }

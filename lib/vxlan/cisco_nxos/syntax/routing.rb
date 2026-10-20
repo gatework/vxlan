@@ -5,22 +5,19 @@ module Vxlan
     module Syntax
       # 路由作用域保留邻居、模板、VRF 与地址族的归属。
       module Routing
-        BGP_LEAF = /\A(?:no )?(?:remote-as|inherit peer|update-source|route-map|next-hop-self|route-reflector-client|advertise-pip|advertise l2vpn evpn|send-community|retain route-target)\b/
-        private_constant :BGP_LEAF
-
         private
 
         # 解析支持的路由作用域及协议关系。
         def routing(block, protocol, context = :process, family: nil, parent: nil)
           values = { vrfs: {}, neighbors: {}, templates: {}, address_families: {}, redistribute: [] }
+          neighbor_keys = {}
           analyze_children(block) do |child|
-            next issue(child) if protocol != :bgp && BGP_LEAF.match?(child.text)
             next issue(child) unless routing_leaf?(child.text, protocol, context, family, parent)
 
             case child.text
             when /\Avrf (\S+)\z/ then routing_scope(values, :vrfs, $1, child, protocol, context)
             when /\Atemplate peer (\S+)\z/ then routing_scope(values, :templates, $1, child, protocol, context)
-            when /\Aneighbor (\S+)\z/ then routing_scope(values, :neighbors, $1, child, protocol, context)
+            when /\Aneighbor (\S+)\z/ then routing_scope(values, :neighbors, $1, child, protocol, context, neighbor_keys: neighbor_keys)
             when /\Aaddress-family (.+)\z/ then routing_scope(values, :address_families, $1, child, protocol, context)
             when /\Arouter-id (\S+)\z/
               router_id = ip_address($1)
@@ -73,6 +70,8 @@ module Vxlan
         def routing_leaf?(text, protocol, context, family, parent)
           process_family = context == :address_families && %i[process vrfs].include?(parent)
           case text
+          when /\A(?:no )?(?:send-community|next-hop-self|route-reflector-client|advertise-pip|advertise l2vpn evpn)\b/
+            protocol == :bgp && context == :address_families
           when /\A(?:remote-as|inherit peer|update-source)\b/
             protocol == :bgp && %i[neighbors templates].include?(context)
           when /\Aroute-map\b/
@@ -92,7 +91,7 @@ module Vxlan
         end
 
         # 只进入当前事实模型可表达的子作用域，阻止任意递归及跨协议误归属。
-        def routing_scope(values, kind, name, block, protocol, context)
+        def routing_scope(values, kind, name, block, protocol, context, neighbor_keys: nil)
           supported = case kind
           when :vrfs then context == :process
           when :templates then protocol == :bgp && context == :process
@@ -102,6 +101,17 @@ module Vxlan
               /\A(?:ipv[46] (?:unicast|multicast)|vpnv[46] unicast|l2vpn evpn)\z/.match?(name)
           end
           return issue(block) unless supported
+
+          # 邻居允许主机与动态前缀；坏身份只排除本块，保留同进程其他事实。
+          if kind == :neighbors
+            begin
+              canonical = name.include?("/") ? network_prefix(name) : ip_address(name)
+              # 身份索引用标准地址；事实键保留首次原文，重复项仍走统一的冲突与来源失效规则。
+              name = neighbor_keys[canonical] ||= name
+            rescue ArgumentError, IPAddr::Error
+              return issue(block, :invalid_configuration_value)
+            end
+          end
 
           conflicts_before = @configuration_conflict_count
           store_unique_fact(values[kind], name, block, path: @source_path + [ kind, name ]) do

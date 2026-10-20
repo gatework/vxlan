@@ -17,3 +17,17 @@
 /storage/
 /tmp/
 .DS_Store
+
+# 现场采集配置与逐设备报告不进入 Git 或安装包。
+/examples/vxlan.yml
+/examples/vxlans/
+
+# 正式 CLI 在源码目录运行时的默认现场文件。
+/vxlan.yml
+/vxlans/
+
+# 在 bin/ 启动正式命令时的现场配置及报告。
+/bin/vxlan.yml
+/bin/fabric-policy.yml
+/bin/vxlans/
+.cache/

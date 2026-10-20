@@ -2,6 +2,70 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## Unreleased
+
+## 0.3.0 (2026-10-20)
+
+- Require ctx_driver 0.2.4+ for the current net-connector session protocol; CLI configuration and progress use net-connector 0.16.0.
+
+- 设备目录只保留 TXT 诊断，结构化采集事实统一移入 evidence/；离线审查只读取新目录。
+- Review 布局 v3：对齐 topology 的 summary.txt/json、devices/*.txt、scripts/*.cfg、plan.json/SHA256 和 events.jsonl；不生成 Markdown。诊断先合并后发布，聚合计划必须 --item 选择单项并交互确认。
+
+- Rename the public configuration parser to `Vxlan::Config` (`vxlan/config`), updating CLI callers, examples, tests and documentation without compatibility aliases. Evidence and review helpers now live under `Config::Evidence` and `Config::Review`.
+
+- 与 net-connector 备份共用批次终端进度、阶段心跳、异常分类和结束摘要；JSON 独立输出，终端故障保留安全诊断且不重采。初始化并发继承公共 `NC_PARALLEL`，不再把公共值或默认 4 固化进 YAML。
+
+- Model ACL meaning as an immutable `AclPolicy` and each supported change as a validated `ChangePlan` subtype. Use one frozen plan through confirmation, sending and readback; copy session snapshots so a reused reader buffer cannot overwrite the starting state. Reuse resolved ACL policies within one review without caching across calls.
+- Share the complete-configuration gate across local advice, Fabric review and typed plans; reject ambiguous offline device identities, and report L2 VLAN differences, single-leaf VNI reuse, unequal-prefix subnet overlaps and unknown ACL dependencies.
+- Recheck gateway addresses and overlapping subnets, VNI uniqueness and newly created ACL binding scope after apply; require an eligible before snapshot in `ChangePlan#satisfied?` and preserve uncertain outcomes when target fields appear alongside unplanned configuration drift.
+- Reject repeated collection callbacks without replaying reads or overwriting acquired facts; validate BGP identities across repeated logical scopes and ASPLAIN/ASDOT forms.
+- Validate BGP scope and contradictory routing identities, exclude ambiguous CDP fields and reject invalid NVE multicast values.
+- Persist new report directory entries before execution, share device artifact naming, index address-group sequences and reuse one configuration fingerprint per device.
+- Remove the legacy `CiscoNxos::Configuration` loading alias and `finish` alias; use `ConfigurationState#finalize_facts` directly with `Vxlan::Config` as the public parser.
+
+- CLI 配置统一使用 net-connector 0.16.0 的分层加载器，遵循命令行 > 进程环境 > YAML > `.env` > 默认值；支持公共配置复用、来源追踪及用户目录初始化。
+
+- Isolate each collection's effective environment and freeze its validated Fabric policy before opening sessions; switching environment files no longer reuses previous credentials or inventory defaults.
+- Require aggregate plan checksums and explicit item selection for every apply; reject standalone legacy plans and missing/repeated session callbacks, and preserve uncertain finalization outcomes.
+- Model Fabric roles and deployed services explicitly, including incomplete VLAN/NVE/EVPN associations; check inherited multicast, tenant routing, ACL dependencies and cross-VNI subnet conflicts before proposing a typed VLAN/VNI association.
+
+- Audit explicitly scoped Fabric leaf groups for common deployed VNI gateway and ordered ACL consistency; preserve deployment differences, flag undefined attached ACLs and cross-VNI subnet conflicts, and block conflicting policy propagation.
+
+- Make configuration script export opt-in with `--scripts`; add typed per-device plans and a TTY-only `apply` command with exact confirmation, fresh configuration guards, durable step checkpoints, no retry/automatic rollback, and configuration readback verification.
+
+- Generate evidence-backed, review-only remediation recommendations during collection and through the offline `review --batch` command, including prerequisites, blocked parameters, conditional rollback, verification commands and source hashes. Configuration drafts are fully commented; no device changes are executed.
+
+- Support live NX-OS variants: unavailable NVE router MACs, empty optional CDP UUIDs, starred down vPC members and wrapped consistency reasons, plus MAC/L2RIB flag legends.
+- Derive BGP route-type columns from supported header declarations, with or without a repeated `PfxRcd` column; retain identity, duplicate-column and prefix-count validation.
+- Exclude local Netdisco inventory caches from version control.
+
+- Validate BGP route-type totals and isolate equivalent configured IPv6 host/prefix identities without changing retained key spelling.
+- Publish incomplete summary checkpoints before finalization; retain safe checkpoints, recover committed failures/cancellation, invalidate stale success on repeated finish, and report unconfirmed recovery without replaying device queries.
+- Add traceable evidence specimens, independent literal expectations, private saved-capture replay and isolated targeted mutation verification tools.
+
+- Centralize static and discovered device validation before public configuration output, reject false filter lists, and isolate state when a CLI runner is reused.
+- Index completed hosts once when building pending-target summaries and document safe report publication states.
+- Normalize BGP summary peer addresses before identity checks and prefix-statistics association.
+- Validate configured neighbor addresses without discarding valid siblings, and keep misplaced BGP address-family switches partial using one shared routing-scope guard.
+
+- Align CLI help, plan/no-progress aliases, initialization guidance and operator documentation with net-connector examples; preserve invocation-directory defaults.
+
+- Add the installable `vxlan collect` / `vxlan parse` command, sharing implementation with thin source examples.
+- Move CLI implementation and templates out of examples; preserve source defaults and use user working directories for installed commands.
+- Remove superseded examples/support files and duplicate example templates.
+
+- Load existing environment defaults before initializing host configuration, honoring the selected config path without copying credentials.
+- Preserve batch summaries and pending targets on scheduler failures; retain an incomplete execution status even after all device reports were saved, without exposing exception details.
+- Mark every requested dimension failed when a connector returns without providing a session, instead of reporting empty evidence as complete.
+
+- Collect native NX-OS observations under one operation lease without redundant session wrapping; preserve acquired facts on finalization failure.
+- Reject prematurely exited/killed collection workers and join all owned threads before propagating failure.
+- Register acquired results before publication, distinguish saved reports from acquired evidence, and preserve cancellation when summary publication also fails.
+- Reject non-private or symlink report roots; sync published directory entries and report safe publication phases without exposing raw filesystem errors.
+
+- Add borrowed-session collection with configuration-first dependent observations; retain requested dimension order.
+- Add host examples for configurable batch collection, safe per-device reports and offline file parsing. Keep net-connector and dotenv outside core runtime dependencies.
+
 ## 0.2.3 (2026-10-18)
 
 - Validate optional IPv4 next hops following static-route output interfaces without changing route fields or option text.

@@ -5,7 +5,7 @@ require_relative "observation"
 
 module Vxlan
   # 配置与运行观测使用相同的平台、型号策略。
-  class Configuration
+  class Config
     # 按当前平台和型号选择 VXLAN 配置策略。
     def initialize(platform: :cisco_nxos, model: nil)
       @profile = ParserRegistry.fetch(platform, model: model)

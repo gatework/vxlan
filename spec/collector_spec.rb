@@ -93,6 +93,19 @@ RSpec.describe Vxlan::Collector do
     expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
   end
 
+  it "retains the first observations without replaying when a connector yields again" do
+    allow(connector).to receive(:open) do |&operation|
+      operation.call(session)
+      outputs["show running-config"] = "hostname OTHER\nend\n"
+      operation.call(session)
+    end
+    result = collect(:configuration)
+    expect(session).to have_received(:send_commands).with([ "show running-config" ]).once
+    expect(result.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_reentered } ])
+    expect(result).not_to be_complete
+  end
+
   it "rejects invalid targets and selections before opening a connection" do
     expect(connector).not_to receive(:open)
     expect { collector.collect(connector: connector, target: "device", fabric_key: "LAB") }.to raise_error(ArgumentError)
@@ -101,10 +114,63 @@ RSpec.describe Vxlan::Collector do
     end
   end
 
+  it "classifies an unopened connection without inventing observations" do
+    allow(connector).to receive(:open).and_raise(IOError, "private login detail")
+    expect(session).not_to receive(:send_commands)
+    result = collect(:configuration, :nve_peers)
+    expect(result.dimensions.values.map(&:status)).to eq([ :failed, :failed, :failed ])
+    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :connection_failed } ])
+  end
+
+  it "never marks an unyielded session as complete or omits requested dimensions" do
+    allow(connector).to receive(:open).and_return(nil)
+    result = collect(:configuration, :nve_peers)
+    expect(result).not_to be_complete
+    expect(result.dimensions.keys).to eq(%i[configuration nve_peers collection])
+    expect(result.dimensions.values.map(&:status)).to eq([ :failed, :failed, :failed ])
+    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_not_opened } ])
+  end
+
+  it "does not replay a query or submit remaining dimensions after disconnect" do
+    allow(session).to receive(:send_commands) do |commands|
+      if commands == [ "show running-config" ]
+        allow(session).to receive(:connected?).and_return(false)
+        raise IOError, "private disconnect detail"
+      end
+      double("preparation", output: "LEAF#", success?: true, steps: [ Object.new ], value!: "")
+    end
+    result = collect(:configuration, :nve_peers)
+    expect(session).to have_received(:send_commands).with([ "show running-config" ]).once
+    expect(session).not_to have_received(:send_commands).with([ "show nve peers" ])
+    expect(result.dimensions.fetch(:nve_peers).issues.first).to include(skipped: true)
+    expect(result).not_to be_complete
+  end
+
   it "rejects an incompatible platform before submitting a command" do
     allow(connector).to receive(:platform).and_return(:cisco_ios)
     expect(connector).not_to receive(:open)
 
     expect { collect(:configuration) }.to raise_error(ArgumentError, "VXLAN requires Cisco NX-OS")
+  end
+  it "collects a borrowed session without opening or closing it" do
+    expect(session).not_to receive(:open)
+    expect(session).not_to receive(:close)
+    result = collector.collect_session(session: session, target: target, fabric_key: "LAB", dimensions: [ :configuration ])
+    expect(result).to be_complete
+    expect(result.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+  end
+
+  it "collects configuration first when dependent dimensions were requested in another order" do
+    outputs["show port-channel summary"] = ""
+    expect(session).not_to receive(:send_commands).with([ "show vpc brief" ])
+    result = collector.collect_session(session: session, target: target, fabric_key: "LAB", dimensions: %i[vpc port_channels configuration])
+    expect(result).to be_complete
+    expect(result.dimensions.keys).to eq(%i[vpc port_channels configuration collection])
+  end
+
+  it "validates borrowed requests before sending any commands" do
+    expect(session).not_to receive(:send_commands)
+    expect { collector.collect_session(session: session, target: target, fabric_key: "LAB", platform: :h3c) }.to raise_error(ArgumentError)
+    expect { collector.collect_session(session: session, target: target, fabric_key: "LAB", dimensions: []) }.to raise_error(ArgumentError)
   end
 end

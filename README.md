@@ -52,13 +52,31 @@ observation.records.each { |record| p record }
 # 单个已解析邻居仅是一项观测，不能证明整个 Fabric 健康。
 ```
 
+## Command line
+
+The gem installs `vxlan`; its implementation lives in `lib/vxlan/cli/`. The scripts in `examples/` are thin callers of the same implementation, plus a self-contained offline demonstration.
+
+```sh
+gem install vxlan
+# Optional dependencies for live collection and .env files:
+gem install net-connector -v '~> 0.16.0'
+vxlan --help
+vxlan collect --init --non-interactive
+vxlan collect --inventory-only
+vxlan parse --file running.cfg --complete
+```
+
+Configuration is layered from `/etc/net-connector`, `/usr/local/etc/net-connector`, `$XDG_CONFIG_HOME/net-connector` (default `~/.config/net-connector`), the entry script directory, the invocation directory, and an explicit file. Each directory may contain shared `net-connector.yml`, native `vxlan.yml`, and `.env`. Values follow **CLI > process environment > YAML > .env > defaults**; device arrays replace rather than append. Relative file paths resolve beside their source file. `--init` creates missing files in the user configuration directory; `--show-config` includes source paths without credential values. Reports default to the invocation directory's `vxlans/`. Offline parsing and help do not load the connector. See [the CLI guide](bin/README.md).
+
 ## Public contract and limits
 
-`Configuration.new.parse(text, complete: false)` returns a configuration observation. `RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` returns a named runtime observation. `ParserRegistry.fetch(platform, model:)` exposes a declared profile for command-specific parsing.
+`Config.new.parse(text, complete: false)` returns a configuration observation. `RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` returns a named runtime observation. `ParserRegistry.fetch(platform, model:)` exposes a declared profile for command-specific parsing.
 
 Complete transport is necessary but insufficient for complete parsing: unknown syntax, conflicting identities, incomplete references, and ambiguous empty tables retain diagnostics. Configuration association findings are separate from syntax completeness and runtime health. IPv6 prefix-list facts do not imply IPv6 underlay inventory support.
 
-`Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` uses a host-supplied connector; device identity, credentials, persistence, reconciliation, and concurrency policy belong to the host. This gem includes no fabric planner, provisioning engine, Rails models, or `Vxlan::Sync`. Loading or running the offline example does not access a device.
+`Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` uses a host-supplied connector; device identity, credentials, persistence, reconciliation, and concurrency policy belong to the host. The CLI adds scoped Fabric review, opt-in change suggestions and interactive application of supported changes. The core remains independent of Rails and databases. Loading or running the offline example does not access a device.
+
+`Collector#collect_session(session:, target:, fabric_key:, platform: :cisco_nxos, model: nil, dimensions:)` borrows an already opened driver session (including the optional native adapter) without opening, closing, escalating privilege or retrying it. When configuration is selected, it is read before dimensions that depend on it; result order still matches the requested dimensions.
 
 The collector copies target identity, fabric identity, and dimension selection before opening the connection. `Observation` names must be symbols; each `Snapshot` dimension must hold an `Observation` with a matching name. Both objects use their metadata-only `inspect` representation for string interpolation.
 
@@ -66,9 +84,13 @@ Conflicting singleton configuration values are excluded and reported as partial 
 
 Detailed vendor behavior, historical validation notes, and Motor-only integration are preserved in [the architecture reference](docs/architecture-zh.md). Host integration examples in that reference require Motor; they are not standalone gem APIs. Motor adapters live under `backend/lib/baseline`, `backend/lib/vxlan`, and `backend/lib/wireless` in the [Motor repository](https://github.com/gatework/motor/tree/main/backend/lib).
 
-The lifecycle connector is a host adapter exposing `open { |session| }` (and `platform` for VXLAN and Wireless). It is distinct from a native `Net::Connector::Base` device instance. Borrowed native sessions are accepted by `CtxDriver::Reader` and `CtxChecker::Collector#collect_session`; they are never implicitly connected or retried.
+The lifecycle connector is a host adapter exposing `open { |session| }` (and `platform` for VXLAN and Wireless). It is distinct from a native `Net::Connector::Base` device instance. Borrowed native sessions are accepted by `CtxDriver::Reader` and `Vxlan::Collector#collect_session`; they are never implicitly connected or retried.
+
+For native sessions, the host holds `native.with_operation(:vxlan)` around the full collection so other tasks cannot interleave commands. Register the snapshot inside that block if it must survive a later lease/close failure; the host reports finalization errors separately. The collection CLI owns this lifecycle; its reports distinguish acquired evidence from confirmed file publication. See [the CLI guide](bin/README.md) for private output directories and cancellation behavior.
 
 ## Domain vocabulary
+
+Runtime variants preserve unavailable NVE router MACs as `nil`, optional empty CDP `dc_uuid` as `nil`, and starred vPC `down*` members as `state: "down"` with `forwarding_via_peer_link: true`. Wrapped vPC consistency/reason fields are joined only for the recognized continuation. BGP prefix statistics follow supported route-type columns in the header, with or without `PfxRcd`, and remain bounded by the main neighbor's received-prefix count. A blank command body or an empty L2RIB table without explicit empty/count evidence remains partial.
 
 VLAN IDs, VNIs, VRFs, and NVE members are separate identities. Configuration review joins VLAN mappings and NVE members by VNI; it does not infer operational reachability. `BgpNeighbors` enumerates configured neighbors after peer-template inheritance, not established BGP sessions. `PrefixListReferences` describes route-map selectors and their routing consumers; those references do not by themselves prove route acceptance.
 
@@ -82,7 +104,7 @@ Repeated prefix-list or route-map sequence identities are excluded within their 
 
 Name shared classes by their responsibility and use the namespace for platform context. Preserve filenames and class names that directly match device commands.
 
-`CiscoNxos::ConfigurationState` holds mutable facts during a single parse; `Vxlan::Configuration` is the public parsing entry point. The former `CiscoNxos::Configuration` constant and its `finish` method remain compatible aliases. Internal method names distinguish parsing (`parse_next_hops`), diagnostics (`unparsed_records`), and conflict exclusion (`exclude_ambiguous_records!`, which removes every record with a repeated identity).
+`CiscoNxos::ConfigurationState` holds mutable facts during a single parse and reduces them through `finalize_facts`; `Vxlan::Config` is the public parsing entry point. Internal method names distinguish parsing (`parse_next_hops`), diagnostics (`unparsed_records`), and conflict exclusion (`exclude_ambiguous_records!`, which removes every record with a repeated identity).
 
 ```sh
 bundle install
@@ -108,3 +130,9 @@ Publish dependency gems first. A Git tag, a successful build, or a workflow file
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Remediation recommendations
+
+`vxlan collect` 默认输出逐设备诊断，使用 `--scripts` 可选导出配置建议；`vxlan review --batch DIR` 可离线补生成既有报告的候选配置、条件回退和只读验收命令。导出不会执行变更；独立 `apply --plan FILE --item ID` 必须在真实终端明确确认，配置漂移或失败即停止。详见[修复建议说明](docs/remediation.md)。 业务分层、会话所有权与执行边界见[架构说明](docs/architecture-zh.md)。
+
+Review output follows the net-connector topology layout: `summary.txt`, `summary.json`, `devices/*.txt`, optional `scripts/*.cfg`, and a checksummed `plan.json`. Generated reports contain no Markdown. Select exactly one change with `vxlan apply --plan plan.json --item ID`; interactive confirmation remains mandatory.

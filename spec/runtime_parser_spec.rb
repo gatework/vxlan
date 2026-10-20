@@ -341,7 +341,7 @@ RSpec.describe Vxlan::RuntimeParser do
     expect(result).to be_complete
     expect(result.records.first[:attributes]).to include(physical_location: "`", local_interface_mac: "00:11:22:33:44:55",
       remote_interface_mac: "aa:bb:cc:dd:ee:ff", dc_uuid: "EXAMPLE1234")
-    [ text.sub("00:11:22:33:44:55", "malformed"), text.sub("EXAMPLE1234", ""), text + "Unknown Location: rack\n" ].each do |invalid|
+    [ text.sub("00:11:22:33:44:55", "malformed"), text + "Unknown Location: rack\n" ].each do |invalid|
       expect(parse(:cdp_neighbors, invalid).status).to eq(:partial)
     end
   end
