@@ -1,0 +1,121 @@
+{
+  "audit_date": "2026-10-20",
+  "scope": "VXLAN business objects, collection, parsing, Fabric analysis, suggestions, interactive apply and local packaging",
+  "runtime": "Ruby 4.0.7",
+  "suite": {
+    "command": "bundle exec rake",
+    "examples": 430,
+    "failures": 0,
+    "rubocop_files": 104,
+    "rubocop_offenses": 0
+  },
+  "mutation": {
+    "policy": "RSpec assertion failures required; unexpected failures rejected",
+    "detected": 8,
+    "total": 8,
+    "non_assertion_controls_rejected": 1,
+    "baseline_examples": 59,
+    "cases": [
+      "prefix-statistics-upper-bound",
+      "canonical-neighbor-key",
+      "checkpoint-bypass",
+      "committed-recovery-bypass",
+      "change-input-ownership",
+      "eligible-readback-origin",
+      "acl-forwarding-order",
+      "execution-starting-snapshot"
+    ]
+  },
+  "replay": {
+    "saved_runtime_captures": 51,
+    "changed_results": 0,
+    "complete": 49,
+    "partial_empty_nve_outputs": 2,
+    "framing": "exact command plus whitespace/control-free prompt",
+    "raw_inputs_committed": false,
+    "historical_configuration_backups": {
+      "target_devices": 83,
+      "matched": 81,
+      "complete": 81,
+      "issues": 0,
+      "matching_review_capture_hashes": 0
+    },
+    "saved_snapshot_review": {
+      "devices": 83,
+      "findings": 62,
+      "typed_changes": 55,
+      "change_kinds": {
+        "svi_acl": 54,
+        "vlan_vni_add": 1
+      },
+      "changes_match_reference_plan": true,
+      "source_hashes_verified": true,
+      "plan_hash_verified": true,
+      "all_changes_eligible_and_rendered": true,
+      "reference_input": "Evidence paths and hashes in the 2026-10-20_03-56-46 reference plan",
+      "fabric_matches_same_source_baseline": true
+    },
+    "raw_replay_phase": "Verified before the business-object refactor in this audit; parser source files are unchanged in this refactor",
+    "public_cli_review": {
+      "devices": 83,
+      "changes": 55,
+      "findings": 62,
+      "entire_plan_matches_same_source_baseline": true,
+      "text_reports": 83,
+      "scripts": 33,
+      "markdown_files": 0,
+      "source_and_plan_hashes_verified": true,
+      "private_permissions_verified": true,
+      "findings_by_fabric": {
+        "CKG3": 15,
+        "SHA2": 25,
+        "SZX8": 7,
+        "SZX9": 15
+      },
+      "input": "Original batch 2026-10-20_02-40-17/evidence",
+      "status": "passed",
+      "comparison": "Full plan.json equality against the pre-refactor CLI using identical input files; source versions are not mixed"
+    }
+  },
+  "performance": {
+    "basis": "local samples, not network latency or a timing gate",
+    "address_group_entries": 5000,
+    "address_group_before_ms": 64.736,
+    "address_group_after_ms": 38.019,
+    "review_before_allocations": 921887,
+    "review_after_allocations": 896496,
+    "review_change_count": 55,
+    "review_before_ms": 168.1,
+    "review_after_ms": 160.6,
+    "review_comparison": "Same reference-plan evidence before and after immutable business-object refactor; local single-run samples",
+    "address_group_comparison": "Earlier parser audit in the same goal; parser files unchanged in the business-object refactor"
+  },
+  "package": {
+    "isolated_install": "passed",
+    "source_independent_load": "passed",
+    "version": "0.2.3",
+    "installed_business_plan": "passed",
+    "source_hashes_verified": true,
+    "library_files": 55,
+    "artifact_sha256": "fbeb8ae716b9c607b35bcc8c45e3e2e957c4f1f69738948fad990f0cb1ab828e",
+    "optional_connector_version": "0.14.2",
+    "global_installation": false
+  },
+  "limits": [
+    "Saved captures are offline evidence; no new live device collection",
+    "Historical configuration backups do not match the saved review capture hashes and cannot certify that batch's raw parser input",
+    "No business configuration was sent to real devices; interactive apply was tested with fixtures and local PTY sessions",
+    "Typed plan readback requires the before snapshot and checks modeled facts; it does not certify traffic or cross-device transactions",
+    "Total storage refusal can prevent invalidating stale summaries; preserve nonzero exit code and recovery-unconfirmed diagnostics"
+  ],
+  "business_objects": {
+    "acl_policy": "Immutable ordered forwarding semantics and resolved address-group members; invalid sequences or unknown dependencies have no policy identity",
+    "change_plan": "Single strict factory with VLAN/VNI, SVI gateway and SVI ACL subtypes; no legacy static execution facade",
+    "execution": "One immutable plan for confirmation, commands and readback; independent before/after configuration snapshots",
+    "review_reuse": "Policies resolved once per role group per invocation; cross-device prerequisites checked before plan construction"
+  },
+  "review": {
+    "mode": "Local self-review against the pre-refactor source snapshot",
+    "independent_agent_review": "Unavailable because the workspace was out of credits"
+  }
+}

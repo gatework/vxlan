@@ -19,11 +19,12 @@ module Vxlan
               section = :peer_links
             elsif line.match?(/\Aid\s+Port\s+Status\s+Consistency\s+Reason\s+Active vlans\z/i)
               section = :members
-            elsif (match = /\A(\d+)\s+(Po\d+)\s+(up|down)\s+(.+)\z/i.match(line)) && section
-              row = { id: match[1].to_i, interface: match[2], state: match[3].downcase }
+            elsif (match = /\A(\d+)\s+(Po\d+)\s+(up|down\*?)\s+(.+)\z/i.match(line)) && section
+              row = { id: match[1].to_i, interface: match[2], state: match[3].downcase.delete_suffix("*") }
+              row[:forwarding_via_peer_link] = true if match[3].end_with?("*")
               rest = match[4].split(/\s{2,}/)
               if section == :members
-                member = /\A(\S+)\s+(.+?)\s{2,}([\d, .-]+)\z/.match(match[4])
+                member = /\A(\S+)\s+(.+?)\s+([\d, .-]+)\z/.match(match[4])
                 unless member
                   unparsed_records(number)
                   next
@@ -36,7 +37,11 @@ module Vxlan
                 next
               end
               values[section] << row
-            elsif section && values[section].any? && line.match?(/\A[\d,.-]+\z/)
+            elsif section == :members && line.match?(/\AApplicable\s+Performed\z/) &&
+                values[:members].last&.values_at(:consistency, :reason) == [ "Not", "Consistency Check Not" ]
+              # NX-OS 将两个相邻列分别换行；只补齐已确认的同一成员。
+              values[:members].last.merge!(consistency: "Not Applicable", reason: "Consistency Check Not Performed")
+            elsif section && values[section].any? && line.match?(/\A[\d, .-]+\z/)
               values[section].last[:active_vlans_summary] += line
             elsif line == "Legend:"
               next
@@ -63,6 +68,7 @@ module Vxlan
           return unless @header
           missing = %i[domain_id peer_status keepalive_status consistency_status] - values.keys
           @issues << { code: :missing_vpc_fields, fields: missing } if missing.any?
+          @issues << { code: :incomplete_vpc_member } if values[:members].any? { |row| row[:consistency] == "Not" }
           values.values_at(:peer_links, :members).flatten.each { |row| row[:active_vlans_truncated] = row[:active_vlans_summary].include?("...") }
           count = values[:attributes]["Number of vPCs configured"]
           if count

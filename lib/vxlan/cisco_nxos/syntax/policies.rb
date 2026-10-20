@@ -7,6 +7,22 @@ module Vxlan
       module Policies
         private
 
+        # 地址组是 ACL 语义的一部分；未知成员不能当成空组或完整配置。
+        def address_group(block)
+          sequences, members = {}, []
+          analyze_children(block) do |child|
+            match = /\A(\d+) (host )?(\S+)\z/.match(child.text)
+            next issue(child) unless match
+            sequence = integer(match[1], 1..4_294_967_295)
+            raise ArgumentError if sequences.key?(sequence)
+            sequences[sequence] = true
+            value = match[3]
+            value = "#{ip_address(value)}/32" if match[2]
+            members << network_prefix(value, family: "ipv4")
+          end
+          members.uniq.sort
+        end
+
         # 解析有序 IP 前缀列表条目及匹配边界。
         def prefix_list(block, lists, family:)
           return ignore(block) if /\A(?:ip|ipv6) prefix-list \S+ description .+\z/.match?(block.text)

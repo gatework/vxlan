@@ -24,7 +24,7 @@ module Vxlan
               @rows << { vlan_id: match[1] == "-" ? nil : match[1].to_i, mac: CtxParser::Values.mac_address(match[2]),
                 type: match[3].downcase, age: match[4], secure: match[5].upcase == "T", notify: match[6].upcase == "T", destination: match[7],
                 flags: line[/\A([*+GOCR~])\s+/, 1] }
-            elsif !line.match?(/\A(?:Legend:|\* - primary entry, G - Gateway MAC, \(R\) - Routed MAC, O - Overlay MAC|age - seconds since last seen,\+ - primary entry using vPC Peer-Link,|\(T\) - True, \(F\) - False, C - ControlPlane MAC, ~ - vsan,?|\(NA\)- Not Applicable(?: A [–-] ESI Active Path, S [–-] ESI Standby Path)?)\z/i)
+            elsif !line.match?(/\A(?:Legend:|\* - primary entry, G - Gateway MAC, \(R\) - Routed MAC, O - Overlay MAC|age - seconds since last seen,\+ - primary entry using vPC Peer-Link,|\(T\) - True, \(F\) - False, C - ControlPlane MAC, ~ - vsan,?|\(NA\)- Not Applicable(?: A [–-] ESI Active Path, S [–-] ESI Standby Path)?|TL - True Learned, PS - Peer Sync, RO - Re-originate)\z/i)
               unparsed_records(number)
             end
           end

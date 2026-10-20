@@ -17,6 +17,12 @@ module Vxlan
       when "collect"
         require_relative "cli/collect"
         return Collect.new(env: env, out: out, error: error, input: input, **collect_options).run(arguments)
+      when "apply"
+        require_relative "cli/apply"
+        return Apply.new(env: env, out: out, error: error, input: input, connector_factory: collect_options[:connector_factory], discovery: collect_options.fetch(:discovery, {})).run(arguments)
+      when "review"
+        require_relative "cli/review"
+        return Review.new(out: out, error: error).run(arguments)
       when "parse"
         require_relative "cli/parse"
         return Parse.new(out: out, error: error, input: input, command: collect_options.fetch(:command, "vxlan parse")).run(arguments)
@@ -27,7 +33,7 @@ module Vxlan
 
     # 全局帮助不读取配置、环境文件或设备清单。
     def self.usage(out)
-      out.puts "用法：vxlan collect [选项]  只读采集与报告\n      vxlan parse [选项]    离线文件或 stdin 解析\n      vxlan --version\n使用 vxlan collect --help 或 vxlan parse --help 查看参数；--help-all 查看完整约定，--examples 查看范例。"
+      out.puts "用法：vxlan collect [选项]  只读采集与报告\n      vxlan parse [选项]    离线文件或 stdin 解析\n      vxlan review --batch DIR  离线修复建议\n      vxlan apply --plan FILE --item ID  交互确认后下发\n      vxlan --version\n使用 vxlan collect --help 、vxlan parse --help 或 vxlan review --help 查看参数；--help-all 查看完整约定，--examples 查看范例。"
       0
     end
     private_class_method :usage

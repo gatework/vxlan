@@ -37,7 +37,7 @@ module Vxlan
 
         body = options[:file] ? File.read(options[:file]) : @input.read
         observation = if options[:dimension] == :configuration
-          Vxlan::Configuration.new(model: options[:model]).parse(body, complete: options[:complete])
+          Vxlan::Config.new(model: options[:model]).parse(body, complete: options[:complete])
         else
           Vxlan::RuntimeParser.new(model: options[:model]).parse(options[:dimension], body, complete: options[:complete])
         end

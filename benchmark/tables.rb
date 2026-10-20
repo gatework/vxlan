@@ -43,10 +43,19 @@ end
   end.join
   policies << (1..count).map { |sequence| "ip prefix-list LIST seq #{sequence} deny 198.51.100.0/24\n" }.join
   stats = measure(expected: [ :partial, 0 ]) do
-    result = Vxlan::Configuration.new.parse(policies, complete: true)
+    result = Vxlan::Config.new.parse(policies, complete: true)
     [ result.status, result.records.first.fetch(:prefix_lists).fetch("LIST").size ]
   end
   puts JSON.generate(case: "policy_conflicts", count: count, **stats)
+
+  group = "hostname LEAF\nobject-group ip address CLIENTS\n" + peers.each_with_index.map do |peer, index|
+    "  #{index + 1} host #{peer}\n"
+  end.join
+  stats = measure(expected: [ :complete, count ]) do
+    result = Vxlan::Config.new.parse(group, complete: true)
+    [ result.status, result.records.first.fetch(:address_groups).fetch("CLIENTS").size ]
+  end
+  puts JSON.generate(case: "address_group", count: count, **stats)
 
   l2route = +"Topology Mac Address Prod Next Hop (s)\n8 0011.2233.4455 BGP #{peers.first}\n"
   l2route << peers.drop(1).map { |peer| "  #{peer}\n" }.join

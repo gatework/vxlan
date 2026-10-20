@@ -28,4 +28,6 @@
 
 # 在 bin/ 启动正式命令时的现场配置及报告。
 /bin/vxlan.yml
+/bin/fabric-policy.yml
 /bin/vxlans/
+.cache/

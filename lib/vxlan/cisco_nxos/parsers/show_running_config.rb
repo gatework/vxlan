@@ -6,8 +6,8 @@ require_relative "../syntax/interfaces"
 require_relative "../syntax/routing"
 require_relative "../syntax/policies"
 require_relative "../document"
-require_relative "../configuration"
-require_relative "../../configuration_review"
+require_relative "../configuration_state"
+require_relative "../../config/review"
 require "ctx_parser/configuration"
 require "ctx_parser/values"
 
@@ -47,7 +47,7 @@ module Vxlan
           @issues << { code: :output_incomplete } unless complete
           status = @issues.empty? ? :complete : :partial
           data[:review_status] = status
-          data[:review_findings] = Vxlan::ConfigurationReview.new(data).call(complete: status == :complete)
+          data[:review_findings] = Vxlan::Config::Review.new(data).call(complete: status == :complete)
           CtxParser::Result.new(status: status, records: [ data ], issues: @issues)
         end
 
@@ -135,6 +135,9 @@ module Vxlan
             name, action, sequence = $1, $2, integer($3, 1..65_535)
             entries = (data[:route_maps][name] ||= [])
             policy_entry(:route_maps, name, sequence, entries, block) { route_map(block).merge(action: action, sequence: sequence) }
+          when /\Aobject-group ip address (\S+)\z/
+            name = $1
+            store_unique_fact(data[:address_groups], name, block, path: [ :address_groups, name ]) { address_group(block) }
           when /\Aip access-list (\S+)\z/
             name = $1
             entries = block.children.filter_map do |child|
@@ -149,7 +152,10 @@ module Vxlan
                 end
               end
             end
-            store_unique_fact(data[:acls], name, block, path: [ :acls, name ]) { entries }
+            store_unique_fact(data[:acls], name, block, path: [ :acls, name ]) do
+              raise ArgumentError unless entries.map { |entry| entry[:sequence] }.uniq.size == entries.size
+              entries
+            end
           when /\Aip route /
             data[:static_routes] << scope(block, [ :static_routes, data[:static_routes].size ]) { static_route(block) }
           when "nv overlay evpn", "no nv overlay evpn"
@@ -337,7 +343,7 @@ module Vxlan
           pending = [ block ]
           until pending.empty?
             entry = pending.pop
-            if /\A(?:no )?(?:hostname|interface|vlan|vrf|router|vpc|evpn|feature|ip address|ip router ospf|ip access-group|ip prefix-list|ipv6 prefix-list|ip access-list|route-map|vn-segment|member vni|route-target|channel-group|fabric forwarding|mtu|ip unnumbered|ip ospf network|switchport mode|switchport access vlan|ip forward|ipv6 address)\b/.match?(entry.text)
+            if /\A(?:no )?(?:hostname|interface|vlan|vrf|router|vpc|evpn|feature|object-group|ip address|ip router ospf|ip access-group|ip prefix-list|ipv6 prefix-list|ip access-list|route-map|vn-segment|member vni|route-target|channel-group|fabric forwarding|mtu|ip unnumbered|ip ospf network|switchport mode|switchport access vlan|ip forward|ipv6 address)\b/.match?(entry.text)
               issue(entry)
             else
               @cursor.mark(entry.index, state: :ignored)

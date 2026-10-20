@@ -6,7 +6,7 @@ require "vxlan/cli/collect"
 require "net/connector"
 require "rbconfig"
 
-RSpec.describe Vxlan::CLI::NativeConnector do
+RSpec.describe Vxlan::CLI::Connector do
   # 只运行本地 PTY 子进程，完整经过已安装连接器的登录、命令回显与关闭逻辑。
   class FixtureTransport < Net::Connector::Transports::Pty
     def argv
@@ -98,12 +98,12 @@ RSpec.describe Vxlan::CLI::NativeConnector do
         described_class.new(device, settings.merge(transport: transport))
       end
       out, error = StringIO.new, StringIO.new
-      status = Vxlan::CLI.run([ "collect", "--config", config, "--env-file", File.join(directory, "missing.env"), "--json" ],
-        env: { "NC_DEVICE_USERNAME" => "fixture-user" }, out: out, error: error, input: StringIO.new, connector_factory: factory)
+      status = Vxlan::CLI.run([ "collect", "--config", config, "--json" ],
+        discovery: { directories: [] }, env: { "NC_DEVICE_USERNAME" => "fixture-user" }, out: out, error: error, input: StringIO.new, connector_factory: factory)
       expect(status).to eq(0), error.string
       summary = JSON.parse(out.string)
       expect(summary.fetch("counts")).to eq("complete" => 1)
-      report = Dir[File.join(directory, "reports/*/devices/*.json")].fetch(0)
+      report = Dir[File.join(directory, "reports/*/evidence/*.json")].fetch(0)
       expect(JSON.parse(File.read(report)).dig("snapshot", "dimensions", "configuration", "records", 0, "hostname")).to eq("LEAF")
     end
   end

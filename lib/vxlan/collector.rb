@@ -21,9 +21,15 @@ module Vxlan
       target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, connector.platform, model)
 
       observations = {}
-      session_finished = false
+      session_started = session_finished = false
       begin
         connector.open do |session|
+          if session_started
+            dimensions.each { |name| observations[name] ||= failure(name, :session_reentered) }
+            observations[:collection] = failure(:collection, :session_reentered)
+            next
+          end
+          session_started = true
           observations.merge!(read_dimensions(session, dimensions, profile))
           session_finished = true
         end

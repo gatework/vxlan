@@ -59,23 +59,22 @@ observation.records.each { |record| p record }
 ```sh
 gem install vxlan
 # 联网采集与读取 .env 所需的可选依赖：
-gem install net-connector -v '~> 0.14.1'
-gem install dotenv -v '~> 3.0'
+gem install net-connector -v '~> 0.14.2'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only
 vxlan parse --file running.cfg --complete
 ```
 
-正式命令默认使用启动目录的 `vxlan.yml`、`.env`、`vxlans/`；YAML 相对路径基于配置文件所在目录，CLI 与进程环境路径基于启动目录。源码示例保持项目根目录约定。模板仅存于 `lib/vxlan/cli/templates/`，初始化保留已有文件，不写入 gem 安装目录。离线解析与帮助不加载连接器。详见[使用说明](bin/README.md)。
+统一按 `/etc/net-connector` → `/usr/local/etc/net-connector` → `$XDG_CONFIG_HOME/net-connector`（默认 `~/.config/net-connector`）→ 脚本目录 → 启动目录 → 显式文件逐层覆盖。每层可放共享 `net-connector.yml`、专用 `vxlan.yml` 和 `.env`。参数优先级为 **命令行 > 进程环境 > YAML > .env > 默认值**，设备数组整体替换。文件内相对路径按来源目录解析。`--init` 在用户配置目录创建缺失模板，`--show-config` 附带来源路径；报告默认仍写启动目录 `vxlans/`。离线解析与帮助不加载连接器。详见[使用说明](bin/README.md)。
 
 ## 公开契约与限制
 
-`Configuration.new.parse(text, complete: false)` 返回配置观察。`RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` 返回具名运行观察。`ParserRegistry.fetch(platform, model:)` 提供按命令解析的声明式策略。
+`Config.new.parse(text, complete: false)` 返回配置观察。`RuntimeParser.new(platform: :cisco_nxos, model: nil).parse(name, text, complete: false)` 返回具名运行观察。`ParserRegistry.fetch(platform, model:)` 提供按命令解析的声明式策略。
 
 传输完整是解析完整的必要条件，不是充分条件。未知语法、身份冲突、不完整引用和无法证明为空的表格保留诊断。配置关联核查与语法完整性、运行健康分别表达。IPv6 prefix-list 事实不代表 IPv6 underlay 库存能力。
 
-`Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` 使用宿主提供的 connector；设备身份、凭据、持久化、库存对账和并发策略由宿主负责。本 gem 不包含 fabric 规划、配置下发、Rails 模型或 `Vxlan::Sync`。加载库或运行离线示例不会访问设备。
+`Collector#collect(connector:, target:, fabric_key:, model: nil, dimensions:)` 使用宿主提供的 connector；设备身份、凭据、持久化、库存对账和并发策略由宿主负责。CLI 提供显式范围的 Fabric 审查、可选变更建议及受支持增量的交互下发；核心库独立于 Rails 和数据库。加载库或运行离线示例不会访问设备。
 
 采集器在打开连接前复制目标身份、Fabric 身份和维度选择。`Observation` 的名称必须为 Symbol；`Snapshot` 的维度值必须是名称与键一致的 `Observation`。两种对象的字符串插值均使用只含元数据的 `inspect` 表示。
 
@@ -91,6 +90,8 @@ vxlan parse --file running.cfg --complete
 
 ## 领域术语
 
+NVE 的 `n/a` Router MAC 保留为 `nil`，CDP 的空 `DC_UUID` 也保留未知值。vPC 的 `down*` 解析为 `state: "down"`，同时保留 `forwarding_via_peer_link: true`；仅拼接已识别的同一成员续行。BGP 按表头声明解析已支持的路由类型列，兼容省略重复 `PfxRcd` 的格式，类型统计仍不得超过主表前缀总数。空命令正文、没有明确空表或总数证据的 L2RIB 结果仍为部分证据。
+
 VLAN ID、VNI、VRF、NVE 成员是不同身份。配置审查通过 VNI 关联 VLAN 映射与 NVE 成员，不推断运行可达性。`BgpNeighbors` 枚举应用 peer-template 继承后的配置邻居，不代表已建立的 BGP 会话。`PrefixListReferences` 表达 route-map 选择器及路由使用方的引用关系，引用本身不能证明路由被接受。
 
 关联诊断包括：显式 EVPN 或 VRF 定义与 NVE 成员二层/三层角色矛盾时的 `vni_layer_conflict`，以及三层 NVE 成员没有对应 VNI 的配置 VRF 时的 `nve_l3_without_vrf`。VLAN 映射本身不能证明二层角色，支持通过 VLAN 承载的三层 VNI。这些诊断仅基于完整配置证据生成，不改变语法解析状态。
@@ -103,7 +104,7 @@ prefix-list 或 route-map 在同种类、同名称内出现重复序号时，排
 
 共享类按实际职责命名，平台信息放在命名空间中。直接对应设备命令的解析器保留文件名和类名。
 
-`CiscoNxos::ConfigurationState` 持有单次解析期间的可变事实，`Vxlan::Configuration` 是公开解析入口。原 `CiscoNxos::Configuration` 常量及其 `finish` 方法保留为兼容别名。内部方法名区分文本解析（`parse_next_hops`）、诊断记录（`unparsed_records`）和冲突排除（`exclude_ambiguous_records!`，移除重复身份的全部记录）。
+`CiscoNxos::ConfigurationState` 持有单次解析期间的可变事实，通过 `finalize_facts` 归约；`Vxlan::Config` 是公开解析入口。内部方法名区分文本解析（`parse_next_hops`）、诊断记录（`unparsed_records`）和冲突排除（`exclude_ambiguous_records!`，移除重复身份的全部记录）。
 
 ```sh
 bundle install
@@ -129,3 +130,9 @@ CI 在 Linux、macOS 上执行测试、lint、示例、构建和隔离安装。`
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
+
+## 修复建议
+
+`vxlan collect` 默认输出逐设备诊断，使用 `--scripts` 可选导出配置建议；`vxlan review --batch DIR` 可离线补生成既有报告的候选配置、条件回退和只读验收命令。导出不会执行变更；独立 `apply --plan FILE --item ID` 必须在真实终端明确确认，配置漂移或失败即停止。详见[修复建议说明](docs/remediation.md)。 业务分层、会话所有权与执行边界见[架构说明](docs/architecture-zh.md)。
+
+报告阅读顺序与 net-connector topology 一致：`summary.txt` → `devices/*.txt` → `scripts/*.cfg`。不生成 Markdown 报告。所有可执行增量汇总于带 SHA256 校验的 `plan.json`，通过 `vxlan apply --plan plan.json --item ID` 选择一项并交互确认。

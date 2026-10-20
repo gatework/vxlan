@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative "spec_helper"
+require_relative "../spec_helper"
 
-RSpec.describe Vxlan::ConfigurationReview do
+RSpec.describe Vxlan::Config::Review do
   def review(body, complete: true)
-    observation = Vxlan::Configuration.new.parse("hostname LEAF\n#{body}", complete: complete)
+    observation = Vxlan::Config.new.parse("hostname LEAF\n#{body}", complete: complete)
     expect(observation.status).to eq(complete ? :complete : :partial)
     observation.records.first.fetch(:review_findings)
   end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "spec_helper"
+require "pp"
 
 RSpec.describe "Immutable facts and evidence" do
   it "rejects mutable observation identities and mismatched snapshot dimensions" do
@@ -30,6 +31,18 @@ RSpec.describe "Immutable facts and evidence" do
     [ observation, snapshot ].each do |value|
       expect("#{value}").to eq(value.inspect)
       expect("#{value}").not_to include("PRIVATE_")
+    end
+  end
+
+  it "keeps pretty printing as private as inspect for facts and snapshots", :aggregate_failures do
+    observation = Vxlan::Observation.new(name: :configuration, status: :complete,
+      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { detail: "PRIVATE_EVIDENCE" } ])
+    snapshot = Vxlan::Snapshot.new(target: { credential: "PRIVATE_TARGET" }, fabric_key: "LAB",
+      dimensions: { configuration: observation }, observed_at: nil)
+    [ observation, snapshot ].each do |value|
+      output = PP.pp(value, +"")
+      expect(output).not_to include("PRIVATE_")
+      expect(output.strip).to eq(value.inspect)
     end
   end
 

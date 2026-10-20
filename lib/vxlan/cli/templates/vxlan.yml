@@ -1,6 +1,7 @@
-# 公开配置；凭据仅在环境中。CLI > YAML > 环境默认值。
+# 公开配置；凭据仅在环境中。CLI > 进程环境 > YAML > .env > 默认。
 fabric: default
-parallel: 4
+# 并发默认继承公共 NC_PARALLEL；仅需独立覆盖时设置 parallel。
+# parallel: 4
 directory: vxlans
 # 默认采集全部维度；大表可以按需启用，单设备命令始终顺序执行。
 dimensions:

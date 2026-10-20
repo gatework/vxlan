@@ -93,6 +93,19 @@ RSpec.describe Vxlan::Collector do
     expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
   end
 
+  it "retains the first observations without replaying when a connector yields again" do
+    allow(connector).to receive(:open) do |&operation|
+      operation.call(session)
+      outputs["show running-config"] = "hostname OTHER\nend\n"
+      operation.call(session)
+    end
+    result = collect(:configuration)
+    expect(session).to have_received(:send_commands).with([ "show running-config" ]).once
+    expect(result.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_reentered } ])
+    expect(result).not_to be_complete
+  end
+
   it "rejects invalid targets and selections before opening a connection" do
     expect(connector).not_to receive(:open)
     expect { collector.collect(connector: connector, target: "device", fabric_key: "LAB") }.to raise_error(ArgumentError)

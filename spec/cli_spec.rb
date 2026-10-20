@@ -6,12 +6,30 @@ require "rbconfig"
 require "tmpdir"
 require "json"
 require "yaml"
+require "fileutils"
 
 RSpec.describe "VXLAN installed command" do
   let(:root) { File.expand_path("..", __dir__) }
 
-  def command(*args, directory: root, stdin: "", env: {})
-    Open3.capture3({ "VXLAN_CONFIG" => nil }.merge(env), RbConfig.ruby, "-I#{root}/lib", "#{root}/bin/vxlan", *args,
+  around do |example|
+    Dir.mktmpdir("vxlan-cli-") do |sandbox|
+      @sandbox = sandbox
+      FileUtils.mkdir_p(File.join(sandbox, "bin"))
+      FileUtils.mkdir_p(File.join(sandbox, "home"))
+      FileUtils.mkdir_p(File.join(sandbox, "work"))
+      FileUtils.cp(File.join(root, "bin/vxlan"), File.join(sandbox, "bin/vxlan"))
+      FileUtils.ln_s(File.join(root, "lib"), File.join(sandbox, "lib"))
+      example.run
+    end
+  end
+
+  def isolated_environment
+    ENV.keys.grep(/\A(?:VXLAN_|NC_|NETDISCO_|WIRELESS_)/).to_h { |key| [ key, nil ] }.merge(
+      "HOME" => File.join(@sandbox, "home"), "XDG_CONFIG_HOME" => File.join(@sandbox, "home/.config"))
+  end
+
+  def command(*args, directory: File.join(@sandbox, "work"), stdin: "", env: {})
+    Open3.capture3(isolated_environment.merge(env), RbConfig.ruby, "-I#{root}/lib", File.join(@sandbox, "bin/vxlan"), *args,
       chdir: directory, stdin_data: stdin)
   end
 
@@ -48,19 +66,19 @@ RSpec.describe "VXLAN installed command" do
     expect(status).to be_success, stderr
     expect(stdout).to eq("")
   end
-  it "initializes in the invocation directory and preserves existing files" do
+  it "initializes in the user configuration directory and preserves existing files" do
     Dir.mktmpdir do |directory|
       stdout, stderr, status = command("collect", "--init", "--non-interactive", directory: directory)
       expect(status).to be_success, stderr
-      config = File.join(directory, "vxlan.yml")
-      env_file = File.join(directory, ".env")
+      config = File.join(@sandbox, "home/.config/net-connector/vxlan.yml")
+      env_file = File.join(@sandbox, "home/.config/net-connector/.env")
       expect(File).to exist(env_file)
       expect(YAML.safe_load_file(config).fetch("directory")).to eq(File.join(File.realpath(directory), "vxlans"))
       expect(File.stat(config).mode & 0o777).to eq(0o600)
       File.write(config, "preserve me")
       command("collect", "--init", directory: directory)
       expect(File.read(config)).to eq("preserve me")
-      expect(stdout).to include(File.join(File.realpath(directory), "vxlan.yml"))
+      expect(stdout).to include(config)
     end
   end
 
@@ -76,13 +94,15 @@ RSpec.describe "VXLAN installed command" do
     end
   end
 
-  it "keeps source examples relative to the project root" do
+  it "resolves source example paths beside their configuration" do
     Dir.mktmpdir do |directory|
       config = File.join(directory, "vxlan.yml")
       File.write(config, YAML.dump("devices" => [], "directory" => "examples/vxlans"))
-      stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-I#{root}/lib", "#{root}/examples/collect.rb", "--config", config, "--show-config", chdir: directory)
+      example_path = File.join(@sandbox, "bin/collect.rb")
+      FileUtils.cp(File.join(root, "examples/collect.rb"), example_path)
+      stdout, stderr, status = Open3.capture3(isolated_environment, RbConfig.ruby, "-I#{root}/lib", example_path, "--config", config, "--show-config", chdir: directory)
       expect(status).to be_success, stderr
-      expect(JSON.parse(stdout).fetch("directory")).to eq(File.join(root, "examples/vxlans"))
+      expect(JSON.parse(stdout).fetch("directory")).to eq(File.join(directory, "examples/vxlans"))
     end
   end
   it "supports the reference examples help and preview conventions" do
@@ -96,7 +116,7 @@ RSpec.describe "VXLAN installed command" do
     Dir.mktmpdir do |directory|
       config = File.join(directory, "vxlan.yml")
       File.write(config, YAML.dump("devices" => [ { "host" => "192.0.2.10" } ]))
-      stdout, stderr, status = command("collect", "--config", config, "--env-file", "missing.env", "--plan", "--json", "--no-progress")
+      stdout, stderr, status = command("collect", "--config", config, "--plan", "--json", "--no-progress")
       expect(status).to be_success, stderr
       expect(JSON.parse(stdout).map { |device| device.fetch("host") }).to eq([ "192.0.2.10" ])
       expect(stderr).to eq("")

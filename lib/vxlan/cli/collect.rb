@@ -3,28 +3,10 @@
 require "vxlan"
 require_relative "options"
 require_relative "report"
-require_relative "parallel"
+require_relative "connector"
 
 module Vxlan
   module CLI
-    # 可选传输适配器；只由联网采集使用，解析库不引用 net-connector。
-    class NativeConnector
-      # 固定设备与接入选项，不在构造时建立会话。
-      def initialize(device, settings)
-        @device, @settings = device, settings
-      end
-
-      # 向 Collector 声明已知平台，不把品牌猜测当作型号识别。
-      def platform = :cisco_nxos
-
-      # 连接器拥有原生会话；CtxDriver 仅借用，不负责关闭或重连。
-      def open
-        Net::Connector.open(:cisco_nxos, host: @device.fetch("host"), **@settings) do |native|
-          native.with_operation(:vxlan) { yield native }
-        end
-      end
-    end
-
     # 批量入口拥有配置、清单、并行与报告，不向核心库引入宿主依赖。
     class Collect
       # 可注入清单、传输与执行器，离线集成验证不需要任何真实设备。
@@ -32,11 +14,13 @@ module Vxlan
         @env, @out, @error, @input = env, out, error, input
         @connector_factory, @executor = connector_factory, executor
         @defaults = options
-        @lock, @results = Mutex.new, []
+        @lock = Mutex.new
       end
 
       # 先预检全部输入和凭据，再创建报告和连接；失败分类不打印原始异常正文。
       def run(argv)
+        # 每次运行独立持有批次状态；预检失败不能改写上一次报告。
+        @options, @store, @progress, @devices, @results = nil, nil, nil, [], []
         @options = Options.new(argv, env: @env, out: @out, **@defaults)
         return 0 if @options.informational?
         @options.validate_interaction!(input: @input, error: @error)
@@ -47,12 +31,14 @@ module Vxlan
         end
         return 0 if @options.missing?(input: @input, error: @error)
         @options.load
-        progress("配置：#{@options.config}")
-        return output(@options.values) if @options.flags[:show_config]
+        require "net/connector/collect/progress"
+        @progress = Net::Connector::Collect::Progress.new(io: @error, enabled: !@options.flags[:quiet], verbose: @options.flags[:verbose])
+        @progress.notice("配置：#{@options.config}")
+        return output(@options.public_values.merge("sources" => @options.sources)) if @options.flags[:show_config]
         @devices = devices = inventory
         return output(devices) if @options.flags[:inventory_only]
         if devices.empty?
-          progress("没有匹配设备，未建立连接")
+          @progress.notice("没有匹配设备，未建立连接")
           @out.puts JSON.generate(status: :no_devices, total: 0) if @options.flags[:json]
           return 1
         end
@@ -61,31 +47,38 @@ module Vxlan
         unless @connector_factory
           devices.each { |device| Net::Connector::Configuration.new(host: device.fetch("host"), **credentials).validate_endpoint! }
         end
-        @store = Report.new(@options.values.fetch("directory"))
-        progress("VXLAN 只读采集 | 本次 #{devices.size} 台；并发 #{@options.values.fetch('parallel')}")
-        execute(devices) { |device| collect(device, credentials) }
+        unless @executor
+          require "net/connector/resources"
+          Net::Connector::Resources.prepare!(parallel: [ devices.size, @options.values.fetch("parallel") ].min)
+        end
+        @store = Report.new(@options.values.fetch("directory"), scripts: @options.flags[:scripts] == true)
+        @progress.plan(devices: devices, total: @inventory_total, parallel: @options.values.fetch("parallel"), label: "VXLAN 只读采集")
+        @progress.with_updates do
+          execute(devices) { |device| collect(device, credentials) }
+        end
+        @store.review_collected_fabric(@options.fabric_policy)
         summary = finish
         return 2 unless summary
         summary[:status] == :complete ? 0 : 1
       rescue Interrupt
         finish(interrupted: true) if @store
-        @error.puts "采集已取消，已保存的设备报告保留；未保存结果见报告状态"
+        diagnostic "采集已取消，已保存的设备报告保留；未保存结果见报告状态"
         130
       rescue SystemCallError, IOError => error
         finish(report_error: error) if @store
-        @error.puts "VXLAN 参数或报告错误：#{report_diagnostic(error)}"
+        diagnostic "VXLAN 参数或报告错误：#{report_diagnostic(error)}"
         2
       rescue OptionParser::ParseError, ArgumentError, LoadError => error
         if @store
           finish(execution_error: error)
-          @error.puts "VXLAN 执行失败：#{error.class.name}；已采集结果见批次报告"
+          diagnostic "VXLAN 执行失败：#{error.class.name}；已采集结果见批次报告"
         else
-          @error.puts "VXLAN 参数、依赖或报告错误：#{error.message}；使用 --help 查看参数"
+          diagnostic "VXLAN 参数、依赖或报告错误：#{error.message}；使用 --help 查看参数"
         end
         2
       rescue StandardError => error
         finish(execution_error: error) if @store
-        @error.puts "VXLAN 清单或执行失败：#{CtxDriver::Failure.code(error, :collection_failed)}（#{error.class.name}）"
+        diagnostic "VXLAN 清单或执行失败：#{CtxDriver::Failure.code(error, :collection_failed)}（#{error.class.name}）"
         2
       end
 
@@ -95,15 +88,15 @@ module Vxlan
       def load_network
         require "net/connector"
       rescue LoadError
-        raise LoadError, "联网采集需要 net-connector >= 0.14.1；请在宿主 Gemfile 添加或 gem install net-connector", cause: nil
+        raise LoadError, "联网采集需要 net-connector >= 0.14.2；请在宿主 Gemfile 添加或 gem install net-connector", cause: nil
       end
 
       # YAML 静态设备或显式 Netdisco 来源二选一；所有重复地址在连接前拒绝。
       def inventory
         values = @options.values
-        rows = if values["netdisco_config"]
-          require "net/connector/netdisco"
-          settings = Net::Connector::Netdisco::Settings.from_file(values.fetch("netdisco_config"), env: @env)
+        rows = if @options.dynamic_inventory?
+          @progress.reading_inventory
+          settings = @options.netdisco_settings
           Net::Connector::Netdisco::Fleet.new(settings: settings).devices.filter_map do |device|
             next unless device.ready? && device.vendor == :cisco_nxos
             { "host" => device.host, "name" => device.name || device.host, "model" => device.model }
@@ -111,8 +104,8 @@ module Vxlan
         else
           values.fetch("devices")
         end
-        targets = rows.map { |row| normalize_device(row) }
-        raise ArgumentError, "设备清单包含重复管理地址" unless targets.map { |r| r.fetch("host") }.uniq.size == targets.size
+        targets = @options.normalize_devices(rows)
+        @inventory_total = targets.size
         includes = values.fetch("hosts").map { |v| IPAddr.new(v) }
         excludes = values.fetch("exclude_hosts").map { |v| IPAddr.new(v) }
         targets.select do |device|
@@ -122,18 +115,6 @@ module Vxlan
             (values.fetch("names").empty? || values.fetch("names").any? { |v| name.downcase.include?(v.downcase) }) &&
             values.fetch("exclude_names").none? { |v| name.downcase.include?(v.downcase) }
         end
-      end
-
-      # 设备身份只接受公开字段，拒绝隐藏在 YAML 中的密码或连接参数。
-      def normalize_device(row)
-        unless row.is_a?(Hash) && (row.keys - %w[host name model]).empty? && row["host"].is_a?(String) && !row["host"].include?("/")
-          raise ArgumentError, "devices 仅接受 host、name、model，host 须为单个 IP"
-        end
-        host = IPAddr.new(row.fetch("host")).to_s
-        %w[name model].each { |key| raise ArgumentError, "设备 #{key} 须为非空字符串" if row.key?(key) && !row[key].nil? && (!row[key].is_a?(String) || row[key].strip.empty?) }
-        { "host" => host, "name" => row["name"] || host, "model" => row["model"] }.freeze
-      rescue IPAddr::Error
-        raise ArgumentError, "设备 host 无效", cause: nil
       end
 
       # 缺失用户名时不尝试连接；密码允许省略以支持明确的 SSH key/agent。
@@ -146,23 +127,25 @@ module Vxlan
 
       # 空白环境值视为缺失，不修改或回显凭据。
       def secret(name)
-        value = @env[name]
+        value = @options.environment[name]
         value unless value.nil? || value.strip.empty?
       end
 
-      # 每个任务使用独立 Collector 和会话；宿主调度不依赖连接器内部命名。
+      # 每个任务使用独立 Collector 和会话；公共执行器负责有界并发和线程回收。
       def execute(devices, &block)
         parallel = @options.values.fetch("parallel")
         return @executor.call(devices, parallel, &block) if @executor
-        Parallel.map(devices, parallel: parallel, &block)
+        Net::Connector::Parallel::Pool.new(parallel: parallel).map(devices, &block)
       end
 
       # 单台失败保留其他设备和已获得维度；报告持久化失败交由批次终止处理。
       def collect(device, credentials)
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         snapshot = nil
+        @progress.start(device)
+        credentials = credentials.merge(on_event: @progress.method(:event))
         begin
-          connector = @connector_factory ? @connector_factory.call(device, credentials) : NativeConnector.new(device, credentials)
+          connector = @connector_factory ? @connector_factory.call(device, credentials) : Connector.new(device, credentials)
           snapshot = Vxlan::Collector.new.collect(connector: connector, target: device, fabric_key: @options.values.fetch("fabric"),
             model: device["model"], dimensions: @options.values.fetch("dimensions").map(&:to_sym))
           dimensions = snapshot.dimensions.transform_values { |v| { status: v.status, records: v.records.size, issues: v.issues.map { |issue| issue[:code] }.uniq } }
@@ -175,34 +158,41 @@ module Vxlan
         result[:report_saved] = false
         @lock.synchronize { @results << result }
         @store.write(result, snapshot: snapshot)
-        @lock.synchronize do
-          result[:report_saved] = true
-          progress("已采集 #{@results.size} 台 | #{device.fetch('host')} #{result[:status]}；报告已保存；#{result[:duration_ms]} ms") if @options.flags[:verbose] || result[:status] != :complete || (@results.size % 10).zero?
-        end
+        @lock.synchronize { result[:report_saved] = true }
+        @progress.result(result)
         result
       end
 
       # 调度器已回收线程；摘要失败只交付安全诊断，不覆盖先前的取消事实。
       def finish(interrupted: false, report_error: nil, execution_error: nil)
-        summary = @store.finish(@results.sort_by { |r| r[:device]["host"] }, interrupted: interrupted, requested: @devices,
-          report_error: report_error && report_diagnostic(report_error), execution_error: execution_error&.class&.name)
-        output_summary(summary)
+        results = @results.sort_by { |result| result[:device]["host"] }
+        options = { interrupted: interrupted, requested: @devices,
+          report_error: report_error && report_diagnostic(report_error), execution_error: execution_error&.class&.name }
+        summary = @store.finish(results, **options, output_error: @progress.output_error)
+        @progress.finish(summary)
+        # 末尾提示也可能首次失败；只补写输出诊断，不重复设备任务。
+        if @progress.output_error && !summary[:output_error]
+          summary = @store.finish(results, **options, output_error: @progress.output_error)
+        end
+        @out.puts JSON.pretty_generate(summary) if @options.flags[:json]
         summary
       rescue SystemCallError, IOError => error
-        @error.puts "VXLAN 摘要报告错误：#{report_diagnostic(error)}"
+        diagnostic "VXLAN 摘要报告错误：#{report_diagnostic(error)}"
+        diagnostic "摘要恢复未确认；请依据退出码及报告目录检查，不能将旧摘要视为本次成功。" if @store.recovery_failed?
+        nil
+      end
+
+      # 错误提示失败不能覆盖取消或执行退出码；已失效的进度流不再重试。
+      def diagnostic(message)
+        return if @progress&.output_error
+        @error.puts(message)
+      rescue StandardError
         nil
       end
 
       # 自有发布错误消息不含正文；外部文件异常只显示类型，不打印 message/cause。
       def report_diagnostic(error)
         error.instance_of?(Report::Error) ? error.message : error.class.name
-      end
-
-      # 进度固定输出 stderr，JSON stdout 不混入人类提示。
-      def progress(message)
-        return if @options&.flags&.fetch(:quiet, false)
-        @error.puts "[#{Time.now.strftime('%H:%M:%S')}] #{message}"
-        @error.flush
       end
 
       # 预览默认显示逐设备身份；公开配置由显式开关展示。
@@ -214,19 +204,6 @@ module Vxlan
           @out.puts "设备：#{value.size} 台；未建立设备连接"
         end
         value.is_a?(Array) && value.empty? ? 1 : 0
-      end
-
-      # 批次摘要区分完整证据与健康结论，并给出可追溯的报告路径。
-      def output_summary(summary)
-        if @options.flags[:json]
-          @out.puts JSON.pretty_generate(summary)
-        else
-          counts = summary.fetch(:counts)
-          saved = summary.fetch(:devices).count { |result| result[:report_saved] }
-          @out.puts "VXLAN 采集：本次 #{summary.fetch(:total)} 台；已采集 #{summary.fetch(:completed)} 台；报告已保存 #{saved} 台；完整 #{counts.fetch(:complete, 0)}，部分 #{counts.fetch(:partial, 0)}，失败 #{counts.fetch(:failed, 0)}；结果 #{summary.fetch(:status)}"
-          @out.puts "证据完整性不代表 Fabric 健康。"
-          @out.puts "报告：#{File.join(@store.directory, 'summary.txt')}"
-        end
       end
     end
   end

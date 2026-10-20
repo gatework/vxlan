@@ -1,95 +1,97 @@
-> 本文保留模块从 Motor 提取前的领域设计、覆盖范围、限制与验证记录，供兼容迁移和故障分析使用。
-> 当前独立 gem 的安装、依赖、开发与发布入口以 [README-zh.md](../README-zh.md) 为准。
-> 涉及 `Motor::*`、`Sync`、`Baseline::Check`、数据库、Rails、Rake 运维任务及私有实机证据的内容均属于 Motor 宿主集成，不随 gem 提供；历史验证记录不代表当前用户设备已经验证。
+# VXLAN 业务与实现边界
 
-# VXLAN 设备采集与入库
-
-这个目录保存 Motor 自有的 VXLAN 业务实现，参考 Netstack 的 NX-OS 能力和已验证的完整性规则，提供配置关联核验，不搬入 Fabric 规划、报表、CLI 或远程下发引擎。Rails 通过 `config.paths` 自动加载 `lib/vxlan`；数据模型仍使用现有 `Motor::Vxlan*` 类和 Rails 可推导的关联。不新增数据表；prefix-list 以节点、名称、地址族作为唯一身份，已有记录默认 IPv4。
+当前实现是独立 Ruby gem，不依赖 Rails、数据库或 Motor。它把设备证据、业务判断、候选变更、设备执行分开；宿主决定清单、凭据、报告目录和执行时机。使用入口见 [CLI 说明](../bin/README.md)，设备操作规则见 [修复建议](remediation.md)。
 
 ## 业务链路
 
 ```text
-Motor::Device
-  → Motor::Devices::Connector（凭据、平台、严格主机密钥、超时、会话生命周期）
-  → CtxDriver::Reader（net-connector 单命令采集边界）
-  → Vxlan::Collector（同一设备逐条读取）
-  → Configuration / RuntimeParser（维度与 Observation 适配）
-  → CiscoNxos::Profile / Parsers::Show*（平台与型号策略、按命令解析）
-  → Snapshot / Observation
-  → Vxlan::Sync（锁设备、复核来源与版本、事务）
-  → ConfigurationInventory / L2routeInventory / vxlan_segments
+CLI Options：配置 + 本批有效环境 + 显式 Fabric 策略
+  → Collect：设备选择、并发、逐设备结果和报告
+  → Connector：独占操作租约与会话生命周期
+  → Collector / CtxDriver::Reader：同设备顺序读取
+  → CiscoNxos::Profile / Parsers：命令解析与证据完整性
+  → Observation / Snapshot：不可变事实
+  → Recommendations + Fabric::Review：本机诊断与共同业务比较
+  → Report：总览、设备诊断、证据、可选脚本、聚合计划
+  → Apply：单项选择、交互确认、重读、逐条记账、配置回读
 ```
 
-采集通过 [`CtxDriver::Reader`](https://github.com/gatework/ctx_driver) 使用 net-connector 的 `send_commands`，统一验证单命令响应、记录来源摘要并隔离失败；不自己实现 SSH、提示符处理或登录。单脚本解析异常不丢弃已完成维度，断线后标记剩余命令 skipped。配置下发继续由 `Motor::Devices::Script` 和 Netconf 的审批快照、执行认领及设备复核负责；执行开始后的未知结果保留为未知，不自动重放。采集任务不隐式下发配置、自动保存 running-config 或修改设备配置。
+`collect`、`parse`、`review` 不下发业务配置。`--scripts` 只导出建议；只有 `apply --plan plan.json --item ID` 可以进入变更链路。cfg 是审阅产物，不能作为任意脚本交给 apply 执行。
 
-## 调用
+## 领域职责
 
-```ruby
-result = Vxlan::Sync.new.call(device: Motor::Device.find(device_id), fabric_key: "LAB")
-result.counts
-result.observation.complete?
+| 对象 | 负责的知识 | 不承担的职责 |
+| --- | --- | --- |
+| `Config` / `RuntimeParser` | 平台、型号及维度解析，返回 Observation | 清单、凭据、设备连接 |
+| `CiscoNxos::ConfigurationState` | 一次解析的可变状态、关联归约 | 跨设备基线或变更意图 |
+| `Observation` / `Snapshot` | 事实、完整性、来源摘要、时间与不可变身份 | 宣告网络健康 |
+| `Config::Review` | 完整配置内 VLAN/NVE/EVPN/VRF 关系 | 运行可达性和部署意图 |
+| `Config::Evidence` | 保存快照中唯一、外层及记录层均完整的配置证据 | 补全缺失字段或替调用者猜测完整性 |
+| `Fabric::Scope` | 显式 Fabric/角色、唯一成员归属、覆盖缺口 | 根据设备名猜测角色 |
+| `Service::Catalog` | 联合 VLAN/NVE/EVPN 识别业务，保留不完整部署；归一化 RT 与有效 NVE 组播 | 推断所有设备都应部署业务 |
+| `Fabric::Review` | 同角色共同 VNI 的网关、ACL、承载、路由比较；Fabric 内网段冲突 | 以多数票选择策略或删除保护 |
+| `Service::Mapping` | 用完整一致对端证明本机唯一缺失 VLAN/VNI 关联，返回满足前提的计划对象 | 根据 VNI 数字编码猜 VLAN |
+| `SubnetIndex` | 单设备 SVI 按 VRF、地址族和前缀查询重叠，保留重复地址及来源顺序 | 将非法地址判为无冲突、替代变更执行前检查 |
+| `AclPolicy` | 有序转发规则与已解析地址组的不可变策略身份 | 把未知依赖当作空策略、选择权威基线 |
+| `ChangePlan` | 唯一构造入口、不可变参数与命令、配置上下文保持不变的约束 | 任意 CLI、连接会话、自动重试或自动回退 |
+| `ChangePlan::VlanVni` / `SviGateway` / `SviAcl` | 各自业务增量的参数校验、命令、执行前提、目标回读和允许变化的字段 | 重复判断其他动作类型 |
+| CLI `Report` / `Apply` | 产物发布、交互确认、执行记账 | 将配置回读等同业务流量验收 |
 
-# 仅刷新两类 L2RIB 路由；其他维度保持原有证据和数据。
-Vxlan::Sync.new.call(device: device, fabric_key: "LAB",
-  dimensions: %i[l2route_macs l2route_mac_ips])
+解析状态可以可变；对外交付的 Observation/Snapshot 深复制并冻结事实。解析器使用 Symbol 键，报告和计划使用 JSON 字符串键；审查输入是保存后的设备文档。不要把解析状态、报告文档和执行计划混用。
 
-# 离线解析不建立设备会话，不写数据库。
-observation = Vxlan::Configuration.new.parse(configuration_text, complete: true)
-observation.status
-observation.records
-```
+子职责的目录与常量对应：`cli/review/report.rb` 定义 `CLI::Review::Report`，`cli/review/fabric.rb` 定义 `CLI::Review::Fabric`，`cli/connector.rb` 定义 `CLI::Connector`。审查模块编排业务产物，`CLI::Report` 拥有批次目录与原子发布；采集连接适配器拥有设备会话。新增子职责沿用这一归属关系，测试目录跟随实现目录组织。
 
-保留已有运维入口，避免现有调用脚本失效：
+## 采集和配置来源
 
-```sh
-bundle exec rake 'motor:netstack:vxlan[456,LAB]'
-```
+参数优先级统一为命令行 > 进程环境 > YAML > `.env` > 内置默认值。文件按系统目录、用户配置目录、脚本目录、启动目录、显式文件逐层覆盖，数组整体替换，文件中的相对路径以各自来源目录为准。`.env` 合并到本批独立环境；凭据、Netdisco 与参数共享该有效环境，不改写调用者 ENV。Fabric 策略在连接前验证并固定，文件中途改变不影响本批。
 
-默认支持 Cisco NX-OS 的配置、CDP、NVE peer/VNI、BGP EVPN 邻居、OSPF 邻居、vPC、接口、Port-channel、MAC 地址表、L2RIB MAC 和 MAC-IP。命令集中在 `Collector::COMMANDS`。新增设备输出格式时，应先补脱敏 fixture 和完整/截断用例，再修改对应解析器；不能把未知输出判定为空结果。
+静态设备和 Netdisco 来源互斥；先统一校验设备身份、筛选与重复地址，再连接。不同设备并行，同设备命令串行。`Collector#collect` 通过注入的连接器拥有开关会话流程；`collect_session` 借用已有会话，由调用者负责生命周期。原生适配器在操作租约内执行，核心库不实现 SSH、提示符或重连。
 
-Cisco N9K 的具体策略位于 [`lib/vxlan/cisco_nxos`](../lib/vxlan/cisco_nxos/profile.rb)，按命令拆分为 `parsers/show_ip_ospf_neighbors.rb` 等独立文件。直接调用 `Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors.parse(cli_output, complete: true)` 即可离线解析。`ParserRegistry.fetch(:cisco_nxos, model: device.model)` 选择平台与型号策略；命令清单和解析类统一在 `CiscoNxos::Profile` 中声明。原解析入口继续转换为 `Vxlan::Observation`。公共接口、结果对象和扩展方式见 [`../ctx_parser`](https://github.com/gatework/ctx_parser)。
+注入连接器必须只回调一次会话。重复回调不会重采或覆盖首次事实，批次记录 `session_reentered` 并保持失败；没有回调记录 `session_not_opened`。
 
-配置解析按职责组合：`ShowRunningConfig` 编排命令解析，`Syntax::Interfaces/Routing/Policies` 分别解释接口/NVE、路由上下文及策略语法，`CtxParser::Configuration` 管理逐行状态、嵌套来源路径与捕获，`CiscoNxos::ConfigurationState` 持有单次解析状态（旧名 `CiscoNxos::Configuration` 保留为兼容别名），在全部块解析后归约特性列表、校验 BGP 模板引用并关联 SVI/VLAN/VNI 网段。接口地址与网段使用 `CtxParser::Values.ipv4_prefix` 的同一校验。重复身份仍排除歧义记录；语法未知、引用不完整与来源行号继续进入原有 `Result`，供入库边界判断。
+配置先于依赖它的运行维度读取，结果保持用户请求顺序。只有完整配置证明功能未启用时才接受相应空表；空正文不能普遍解释为无数据。BGP 非空表必须有明确 EVPN 作用域，矛盾路由身份隔离整个作用域；CDP 单值冲突不可由后续声明恢复；NVE 复制地址须为已知标记或合法组播地址。断链后保留首次错误和 skipped 标记，不重放命令。关闭失败保留已获取事实，并使采集状态失败。线程异常或取消先回收本批线程，再结束批次。
 
-设备连接默认关闭旧版 SSH 算法协商。确认单台旧设备确有算法兼容需求后，可在其现有 `settings["connector"]["legacy_ssh"]` 中显式保存布尔值 `true`；省略或 `false` 保持关闭，字符串、NULL 等非布尔值会在连接前拒绝。该设置直接传给 net-connector，主机密钥仍严格核验 `storage/net_connector/known_hosts`，不启用 Telnet 回退。连接异常仅保留允许列表中的诊断码（例如 `unsupported_host_key_algorithm`），未知码归为 `connection_failed`；VXLAN 未采集维度保存该原因，不保存底层异常文案或 cause。
+## 从事实到业务建议
 
-## 数据一致性
+业务身份是显式 Fabric、角色和已部署 VNI。Leaf 与 Border 分别比较，Spine 出现业务承载时提示角色冲突。VLAN/NVE/EVPN 任一事实均可证明业务已开始部署；缺环节不等于未部署。未部署设备只列覆盖差异，不自动铺开业务。
 
-设备 I/O 在数据库事务外完成。入库时锁定已有设备，复核设备版本、节点来源、Fabric 及原快照；并发期间已变更的设备或节点、旧结果和同时间不同结果均拒绝写入。节点证据和所有派生清单在同一事务提交，任何写入失败全部回滚。重复投递相同快照保持现有行身份，也可重建缺失的派生行。
+本机建议、Fabric 审查与执行计划统一通过 `Config::Evidence.complete_record(document)` 取得配置。外层 complete 不能覆盖记录层 partial、缺少审查状态或多份配置的歧义；这些情况明确生成补采任务。离线入口还校验规范主机地址及快照目标，避免不同身份写入同一设备方案。
 
-配置的 vPC、Underlay、Overlay、VNI、features、prefix-list 只在完整配置时刷新。三层网段同样只在完整配置时更新和清理。部分配置保存在节点证据中，不能把未读到的 anycast、ACL 或被截断的前缀覆盖到权威清单。L2RIB 两种路由各自判定完整性，部分结果保留旧可选字段并合并下一跳，完整结果才清理该类型缺失行。配置失败不阻止已成功采集的运行路由入库。
+ACL 比较包含方向、有序规则及引用地址组成员；保持相对顺序的重新编号和 remark 不改变转发语义。重复或非法序号不能得到策略身份。`AclPolicy.resolve` 对完整已知规则返回不可变值，对未知规则或依赖返回 nil；明确的空 ACL 与未知策略分别表达。缺失、空组、未知依赖不能证明策略一致。`portgroup`、`object-group` 与 `time-range` 的依赖尚未建模，引用这些依赖的 ACL 即使文本相同也会报告依赖未验证，并阻断自动候选。同名不同内容保留为待决，少数节点有 ACL 也不能推导多数节点应该撤销保护。补建 ACL 还需检查其他接口的既有引用，防止单项操作激活共享定义。
 
-`vxlan_nodes.observations` 的每个维度保留 `latest`；新结果不完整时额外保留 `last_complete`。未请求维度不变。新 VXLAN 观察统一使用 `name/status/records/issues/evidence/started_at/completed_at`；既有历史 JSON 无需回填，后续按维度替换，旧 `last_complete` 保持原形状。展示方须同时显示本次状态和旧数据时间，不能把保留数据显示成实时成功。无线与 VXLAN 共用 `Motor::InventoryObservations` 的时间比较和证据合并规则。
+网关及关联补齐需要明确 VRF、Anycast 身份与唯一地址，并检查全 Fabric 同 VRF 的跨 VNI 网段重叠，包含不同掩码的包含关系；多台 Anycast 的相同网段证据先合并。纯二层业务仍比较 VLAN 映射，同一设备重复映射也须报告。NVE 复制方式包括继承的全局组播；EVPN 与租户 RT 归一化后比较。角色、证据、承载或路由声明冲突会阻止相关变更生成。
 
-配置中的凭据及原始 CLI 正文不持久化。命令证据只保存命令名、字节数和摘要，诊断不附原始配置行。`complete: true` 表示调用者已确认完整接收；解析器仍会因未知语法、歧义身份或不完整输出降为 `partial`。单有表头不能证明空清单。
+建议状态分为 candidate、blocked、investigate。candidate 仍需确认业务意图，不能直接代表批准基线。跨设备建议合并到本机诊断后才生成最终产物，已被可靠增量解决的同一缺项不再重复标为无法推导。
 
-## 验证
+`ChangePlan.build(change)` 只在输入边界判别一次动作类型，拒绝未知类型、未声明字段和非法参数；构造时复制并冻结参数、命令与回退。各子类维护自身不变量，不在多个调用层重复分支。`ChangePlan.candidate(change, config:)` 供推导使用：前提不足返回 nil，保留待核实诊断。报告边界使用 `to_h` 导出普通数据；不序列化 Ruby 对象标识。
 
-```sh
-RAILS_ENV=test bundle exec rspec spec/vendor/vxlan spec/lib/motor/netstack \
-  spec/services/motor/devices/script_spec.rb spec/services/motor/netconf/executor_spec.rb
-RAILS_ENV=test bundle exec rails zeitwerk:check
-bundle exec rubocop
-```
+## 下发与结果确认
 
-测试覆盖离线解析、实际数据库投影、并发冲突及替身设备会话。另有 2026-10-16 全量 83 台 N9K 的真实只读采集及离线重放证据，保存在本机私有 `storage/network-audits`，不把包含凭据的真实配置提交到仓库。
+下发只接受带 SHA256 校验文件的聚合计划和明确的 item。用户在真实终端审阅目标、前提、影响、命令与回退，准确输入包含目标、批次摘要和 item 的确认文本后，才连接设备。不存在 `--yes` 或管道确认入口。
 
-## 配置覆盖与关联核验
+交互确认前从文件构造并固定一个计划对象，核对文件中的命令与回退；连接后重读完整目标配置，对比计划指纹并重新检查动作前提。确认、发送和回读使用同一对象，命令不会在确认后因输入修改而改变。执行器复制并冻结前后配置，避免会话读取器复用容器而覆盖执行前事实。一次操作只允许一次会话回调；没有回调、回调重复或没有完成配置回读，都不能报告成功。
 
-NVE 的内联 `member vni ... mcast-group ...` 与嵌套组播声明归一为相同事实；全局 multicast default 仅用于没有显式组播、BGP 复制或 L3 关联的成员。无效组播、冲突成员和未知语法保持 partial。`interface breakout` 单独进入 `breakouts`，不伪装成接口；`no feature` 进入 `disabled_features`。
+每条命令前持久化意图，返回后记录回执；任一步骤失败或中断立即停止。开始发送后出现不确定结果保持 uncertain，不自动重试、回退或保存 running-config。配置验收和会话收尾完成后才记录 configuration_verified，仍需业务流量验收。
 
-接口事实包含 MTU、OSPF network type、switchport 模式/access VLAN、L3 VNI `ip forward`；NVE 和 BGP 保留 `advertise virtual-rmac`、`advertise-pip`、`advertise l2vpn evpn`、标准/扩展社区和显式关闭状态。BGP 邻居描述、route-map 的方向和 next-hop-self 的 all 语义保留在正确的 VRF/邻居/地址族中。
+回读复验动作的不变量：空 SVI 补网关必须恰为计划中的单个地址，且无同 VRF 网段重叠；VLAN/VNI 关联保持 VNI 唯一；新建 ACL 不得激活所选接口和方向以外的引用。这些谓词由生成前提与回读共用，不能仅凭目标字段出现就报告成功。
 
-`BgpNeighbors` 为 Overlay 投影和策略引用共用模板归约，显式子邻居配置覆盖继承方向；不同 VRF、邻居和地址族的调用位置保持独立。Prefix-list 支持 IPv4/IPv6、address/next-hop/route-source 选择器及邻居/network/重分发/retain/export 调用关系。IPv4 事实继续位于 `prefix_lists`，IPv6 位于 `ipv6_prefix_lists`，历史观察无需重写。
+`plan.satisfied?(after, before:)` 必须同时提供执行前事实，且起点本身须满足 `plan.eligible?(before)`。除所选动作允许的字段外，已建模配置保持一致，包含既有 ACL、Anycast MAC、MTU、接口和承载。原始配置摘要、审查诊断和由事实推导的网段关系会随合法增量变化，不参与这项上下文比较；ACL 序号与备注仍按转发语义比较。额外漂移使结果保持 uncertain。
 
-`ip unnumbered` 保留借用接口关系；同 VRF 的唯一 Loopback IPv4 地址归约到 `unnumbered_addresses`。Underlay 清单使用该物理接口和借用的 /32 主机地址，不猜测链路子网。缺失、歧义、循环或跨 VRF 引用保持 partial；IPv6 Underlay 未被伪装成已支持的 IPv4 清单。
+目标设备指纹覆盖解析出的配置事实。跨设备参考来自审查批次，apply 当前只重读目标设备，参考设备的新鲜度、设备版本和业务意图仍须确认人核对；该边界不保证跨设备事务或阻止其他运维人员同时修改设备。
 
-NX-OS 的 `Document` 与 Baseline 共用 `CtxParser::Banner` 状态机，banner 正文不会生成配置事实；EOF 未闭合会产生 `incomplete_banner`。
+## 产物与性能
 
-完整配置的 `review_findings` 输出 VLAN/VNI/NVE/EVPN 关联核查项，不改变语法完整性，也不直接表示运行故障。`review_status` 为 partial 时不根据缺失数据生成关联结论。这样保留“配置收到且语法已理解”和“业务关联需要核实”两个事实。
+日常入口为 summary.txt → devices/*.txt → scripts/*.cfg；evidence/*.json 供程序重放，plan.json 保存全部诊断、Fabric 对比和有限增量。无候选命令不生成空 cfg，无 Markdown 报告。目录 0700、文件 0600。文件及新建目录的父目录均同步，批次目录同步失败时 apply 不连接设备。先发布 incomplete 检查点，最后提交最终摘要；保存失败不能伪装为采集成功。
 
-## Prefix-list 地址族迁移
+业务目录预先按 VNI 索引 VLAN 映射，批次收尾按 host 索引已完成设备，地址组按序号索引查重。一次角色组审查按设备和 ACL 名称解析策略并复用；网关冲突查询按设备建立 SVI 网段索引，覆盖相等、包含和被包含的前缀，保留 VRF、VNI 和排除接口边界。相关范围中的非法地址仍使审查失败，不因索引跳过；下次审查重新建立索引，避免输入变化后复用旧事实。跨设备前提成立后才构造候选计划。补挂已有 ACL 无需为每个 SVI 重扫全设备引用；新增定义仍核对全部既有引用，并在被阻断时展示受影响接口。生成计划时每台设备仅计算一次配置指纹，聚合变更原地合并；采集和审查共用设备文件命名方法。并发仅用于独立设备；解析及规则比较保持纯本地计算。性能样例 `benchmark/tables.rb` 校验结果后报告耗时和分配量，合成基准不代表真实网络时延。
 
-迁移 `20261016020000` 增加 `address_family`，默认 `ipv4`，由模型和 PostgreSQL 同时约束到 IPv4/IPv6；组合唯一索引允许双栈同名列表。RailsAdmin 列表和详情显示地址族，并提供中英文标签。
+## 验证入口
 
-部署时先排空旧 VXLAN 采集 worker，执行迁移并切换到新代码后再恢复采集。旧代码只按名称定位列表，不应与已经写入双栈数据的新 worker 重叠。迁移会保留原行身份和数据；存在 IPv6 历史时 rollback 明确拒绝删除地址族，需先导出并协调处理。当前本机 development/test 已执行迁移。
+采集宿主直接复用 `Net::Connector::Parallel::Pool` 和 `Net::Connector::Resources`，不维护独立线程池或资源预算。资源不足在创建批次报告和连接设备前失败；预算按筛选后活跃设备数计算。公共执行器保序交付、停止并回收取消的任务，Collector 保持每台设备顺序读取。纯解析核心不加载传输库；公共配置、进度及执行依赖仅由 CLI 按需加载。
+
+- `bundle exec rake`：解析、生命周期、CLI、审查、建议、交互执行、报告故障与取消测试，代码检查及离线示例。
+- `bundle exec ruby script/verify_contracts.rb`：隔离副本中的定向契约变异，原工作树不被修改。
+- `bundle exec ruby -Ilib benchmark/tables.rb`：多规模本地解析及引用构建。
+- `bundle exec rake build` 与 `bundle exec ruby script/verify_package.rb pkg/vxlan-*.gem`：包内容、独立安装、正式命令与离线报告布局。
+
+本地 PTY 和合成回执验证连接器及失败边界，不等于真实设备写入测试。实机只读配置重采、历史运行表重放、合成测试分别记录来源与时间，不能相互替代。

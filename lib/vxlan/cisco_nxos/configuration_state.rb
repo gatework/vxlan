@@ -11,7 +11,7 @@ module Vxlan
       # 初始化单次配置解析使用的可变 NX-OS 事实容器。
       def initialize
         @data = { hostname: nil, features: [], disabled_features: [], breakouts: {}, interfaces: {}, vlan_vnis: {}, vrfs: {}, nve: { members: {} },
-          evpn: {}, bgp: {}, ospf: {}, vpc_domain: nil, unnumbered_addresses: {}, prefix_lists: {}, ipv6_prefix_lists: {}, route_maps: {}, acls: {}, static_routes: [] }
+          evpn: {}, bgp: {}, ospf: {}, vpc_domain: nil, unnumbered_addresses: {}, prefix_lists: {}, ipv6_prefix_lists: {}, route_maps: {}, acls: {}, address_groups: {}, static_routes: [] }
         @issues = []
       end
 
@@ -26,9 +26,6 @@ module Vxlan
         data[:segments] = build_svi_segments
         data
       end
-
-      # 兼容原有解析状态的收尾入口。
-      alias finish finalize_facts
 
       # 展示对象身份与状态，避免泄露原始回显或凭据。
       def inspect = "#<#{self.class} interfaces=#{data[:interfaces].size} issues=#{issues.size}>"

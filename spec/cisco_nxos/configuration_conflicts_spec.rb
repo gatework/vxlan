@@ -152,7 +152,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
         expect(configuration.dig(:interfaces, "Ethernet1/1", :mtu)).to eq(1500)
         expect(Vxlan::BgpNeighbors.new(configuration.fetch(:bgp)).to_a).to be_empty
         expect(Vxlan::PrefixListReferences.new(configuration).call).to be_empty
-        expect(Vxlan::ConfigurationReview.new(configuration).call(complete: true)).to be_empty
+        expect(Vxlan::Config::Review.new(configuration).call(complete: true)).to be_empty
       end
     end
   end

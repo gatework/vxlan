@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "bgp-saved-sanitized",
+      "file": "bgp_summary.txt",
+      "sha256": "551a644591f89dde8153a21f2bb2ee972d4ccffca532c1f537c723ccafce3771",
+      "command": "show bgp l2vpn evpn summary",
+      "platform": "cisco_nxos",
+      "model": "not_recorded",
+      "provenance": "saved_capture_derived",
+      "raw_sha256": "a26d72a2ef9abfb5ff835145ab1e957c7ba558d4209bf24b3bfb65ca52fae663",
+      "transformations": [
+        "Verify exact command echo and final prompt, remove those two framing lines",
+        "Replace IPv4 identities consistently with 192.0.2.0/24 addresses",
+        "Replace local/remote AS with 65001/65002; normalize row whitespace; preserve counters and table boundaries"
+      ],
+      "expected": {
+        "status": "complete",
+        "issues": [],
+        "records": [
+          {
+            "peer_ip": "192.0.2.2",
+            "version": 4,
+            "remote_as": 65002,
+            "messages_received": 14334442,
+            "messages_sent": 1668754,
+            "table_version": 89489858,
+            "input_queue": 0,
+            "output_queue": 0,
+            "uptime": "1y25w",
+            "state": "established",
+            "vrf": "default",
+            "address_family": "L2VPN EVPN",
+            "router_id": "192.0.2.1",
+            "local_as": "65001",
+            "prefixes_received": 3249,
+            "prefixes_by_type": {
+              "type2": 1864,
+              "type3": 693,
+              "type4": 0,
+              "type5": 692
+            }
+          },
+          {
+            "peer_ip": "192.0.2.3",
+            "version": 4,
+            "remote_as": 65002,
+            "messages_received": 14334198,
+            "messages_sent": 1668753,
+            "table_version": 89489858,
+            "input_queue": 0,
+            "output_queue": 0,
+            "uptime": "1y25w",
+            "state": "established",
+            "vrf": "default",
+            "address_family": "L2VPN EVPN",
+            "router_id": "192.0.2.1",
+            "local_as": "65001",
+            "prefixes_received": 3249,
+            "prefixes_by_type": {
+              "type2": 1864,
+              "type3": 693,
+              "type4": 0,
+              "type5": 692
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "inherited_fixtures": [
+    {
+      "file": "ctx_parser/show_ip_ospf_neighbors.txt",
+      "sha256": "577e06b18e6f2588f2683bc17b618c7b689aee0d39f4ec174fb487ac9ae425ba",
+      "provenance": "historical_origin_unverified"
+    },
+    {
+      "file": "netstack/l2route_mac_ips.txt",
+      "sha256": "4efffe364cce1a0ba8ca5e921121648b7359b44fabee46abb263e8bff0e3ef7e",
+      "provenance": "historical_origin_unverified"
+    },
+    {
+      "file": "netstack/l2route_macs.txt",
+      "sha256": "9ebc2053ce28a392a8ed1747320a88d9e76af7bdcb688721ab51e82953ec2a02",
+      "provenance": "historical_origin_unverified"
+    },
+    {
+      "file": "netstack/vxlan_policies.cfg",
+      "sha256": "f31a974aeb87cc507825db38848ae5386ac2999b417253bd7c7fb8c0f20ed60c",
+      "provenance": "historical_origin_unverified"
+    },
+    {
+      "file": "netstack/vxlan_topology.cfg",
+      "sha256": "e06aaa8aee4e726d64496075d187dd3b7da85f0256c010532086cffcb60cc059",
+      "provenance": "historical_origin_unverified"
+    }
+  ]
+}

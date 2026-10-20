@@ -7,13 +7,26 @@ require "tmpdir"
 require "stringio"
 require "json"
 require "yaml"
+require "fileutils"
 
 RSpec.describe "VXLAN host examples" do
   let(:root) { File.expand_path("..", __dir__) }
 
-  # 子进程加载公开脚本，验证入口本身而不是复制 OptionParser 行为。
+  around do |example|
+    Dir.mktmpdir("vxlan-examples-") do |sandbox|
+      @sandbox = sandbox
+      FileUtils.mkdir_p(File.join(sandbox, "examples"))
+      FileUtils.ln_s(File.join(root, "lib"), File.join(sandbox, "lib"))
+      %w[collect parse].each { |name| FileUtils.cp(File.join(root, "examples", "#{name}.rb"), File.join(sandbox, "examples", "#{name}.rb")) }
+      example.run
+    end
+  end
+
+  # 运行公开入口的隔离副本，防止读取开发者现场配置。
   def invoke(script, *arguments, stdin: "", env: {})
-    Open3.capture3(env, RbConfig.ruby, "-I#{root}/lib", "#{root}/examples/#{script}.rb", *arguments, stdin_data: stdin)
+    clean = ENV.keys.grep(/\A(?:VXLAN_|NC_|ND_)/).to_h { |key| [ key, nil ] }
+    clean.merge!("HOME" => @sandbox, "XDG_CONFIG_HOME" => File.join(@sandbox, ".config"))
+    Open3.capture3(clean.merge(env), RbConfig.ruby, "-I#{root}/lib", File.join(@sandbox, "examples", "#{script}.rb"), *arguments, stdin_data: stdin, chdir: @sandbox)
   end
 
   it "shows help and examples without reading configuration or loading a live connector" do
@@ -54,7 +67,7 @@ RSpec.describe "VXLAN host examples" do
       path = File.join(directory, "missing.yml")
       _stdout, stderr, status = invoke("collect", "--config", path, "--non-interactive")
       expect(status.exitstatus).to eq(2)
-      expect(stderr).to include("--init")
+      expect(stderr).to include("configuration file does not exist", path)
       expect(File.exist?(path)).to be(false)
     end
   end
