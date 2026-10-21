@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require "ctx_runner/fingerprint"
 require "json"
 require "ipaddr"
 require "ctx_parser/immutable"
@@ -34,16 +34,10 @@ module Vxlan
     end
 
     # 字符串键规范化后计算语义指纹；Hash 顺序不影响结果，数组保留业务顺序。
-    def self.fingerprint(value) = Digest::SHA256.hexdigest(JSON.generate(canonical(value)))
+    def self.fingerprint(value) = CtxRunner::Fingerprint.call(value)
 
-    # 规范化同时提供独立容器，用于屏蔽唯一允许变化的字段。
-    def self.canonical(value)
-      case value
-      when Hash then value.transform_keys(&:to_s).sort.to_h.transform_values { |entry| canonical(entry) }
-      when Array then value.map { |entry| canonical(entry) }
-      else value
-      end
-    end
+    # 兼容既有领域入口，配置身份协议仅由 Runner 实现。
+    def self.canonical(value) = CtxRunner::Fingerprint.canonical(value)
 
     # 构造时一次校验和渲染，随后调用者不能改变已确认的参数或命令。
     def initialize(change)

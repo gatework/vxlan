@@ -3,6 +3,7 @@
 require "optparse"
 require "json"
 require "digest"
+require "ctx_runner/execution"
 require "ipaddr"
 require "vxlan"
 require_relative "report"
@@ -45,7 +46,7 @@ module Vxlan
 
       # 没有 --yes 或自动回退；零退出码只确认配置回读，不声称业务已验收。
       def run(argv)
-        @store, @state, @started = nil, nil, false
+        @store, @execution = nil, nil
         options = { directory: File.join(Dir.pwd, "vxlan-executions"), port: 22 }
         parser = OptionParser.new do |p|
           p.banner = "用法：vxlan apply --plan FILE --item ID [--env-file FILE]（必须真实终端明确确认）"
@@ -75,43 +76,17 @@ module Vxlan
         return @out.puts("已取消，未连接设备。") || 1 unless @input.gets&.strip == token
         settings = credentials(options)
         @store = Report.new(options[:directory])
-        @state = { "status" => "confirmed", "device" => plan["device"], "plan_sha256" => hash, "plan_item" => options[:item], "expected_config_sha256" => plan["expected_config_sha256"], "commands" => plan["commands"], "steps" => [] }
-        @store.write_execution(@state)
-        session_opened, verified = false, false
-        with_session(plan["device"], settings) do |session|
-          raise IOError, "会话回调重复，禁止重放" if session_opened
-          session_opened = true
-          before = CtxParser::Immutable.copy(session.read_configuration)
-          unless ChangePlan.fingerprint(before) == plan["expected_config_sha256"] && change.eligible?(before)
-            raise ArgumentError, "配置已变化或增量前提不满足"
-          end
-          change.commands.each_with_index do |command, index|
-            @state["status"] = "executing"
-            @state["pending_command"] = index
-            @store.write_execution(@state)
-            @started = true
-            raise IOError, "设备命令未确认" unless session.write(command) == true
-            @state["steps"] << { "index" => index, "status" => "acknowledged" }
-            @state.delete("pending_command")
-            @store.write_execution(@state)
-          end
-          after = CtxParser::Immutable.copy(session.read_configuration)
-          raise IOError, "配置验收未通过" unless change.satisfied?(after, before: before)
-          @state["observed_config_sha256"] = ChangePlan.fingerprint(after)
-          verified = true
-        end
-        raise IOError, "会话未完成配置验证" unless verified
-        @state["status"] = "configuration_verified"
-        @store.write_execution(@state)
+        @execution = CtxRunner::Execution.new(plan: plan, change: change, journal: @store, plan_sha256: hash, item: options[:item])
+        @execution.run { |operation| with_session(plan["device"], settings, &operation) }
         @out.puts "配置回读已确认；仍需完成业务验收，未执行保存配置。日志：#{@store.directory}/execution.json"
         0
       rescue Interrupt
-        record_failure("interrupted")
-        @error.puts "操作中断；#{@started ? '设备效果可能不完整，请先回读核对，禁止重放。' : '尚未下发业务配置。'}"
+        report_journal_failure
+        @error.puts "操作中断；#{@execution&.started? ? '设备效果可能不完整，请先回读核对，禁止重放。' : '尚未下发业务配置。'}"
         130
       rescue StandardError, LoadError => error
-        record_failure(error.class.name)
-        @error.puts "下发停止（#{error.class.name}）；#{@started ? '效果未完整确认，先回读，不自动重放或回退。' : '未下发业务配置；检查终端、计划、凭据及当前配置是否仍匹配。'}"
+        report_journal_failure
+        @error.puts "下发停止（#{error.class.name}）；#{@execution&.started? ? '效果未完整确认，先回读，不自动重放或回退。' : '未下发业务配置；检查终端、计划、凭据及当前配置是否仍匹配。'}"
         2
       end
 
@@ -158,14 +133,12 @@ module Vxlan
         end
       end
 
-      # 失败记录尽力持久化；记录失败也不允许继续发送任何命令。
-      def record_failure(code)
-        return unless @store && @state
-        @state["status"] = @started ? "uncertain" : "failed"
-        @state["error"] = code
-        @store.write_execution(@state)
-      rescue StandardError, Interrupt
+      # 公共执行器保存失败状态；CLI 只呈现持久性尚未确认的诊断。
+      def report_journal_failure
+        return unless @execution&.journal_failed?
         @error.puts "执行日志收尾未确认；保留已有检查点，禁止据此重放配置。"
+      rescue StandardError, Interrupt
+        nil
       end
     end
   end

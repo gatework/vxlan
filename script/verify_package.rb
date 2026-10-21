@@ -9,6 +9,9 @@ require "fileutils"
 artifact = File.expand_path(ARGV.fetch(0))
 connector_artifact = ARGV[1] && File.expand_path(ARGV[1])
 expect_artifact = ARGV[2] && File.expand_path(ARGV[2])
+runner_artifact = ARGV[3] && File.expand_path(ARGV[3])
+runner_spec = runner_artifact && Gem::Package.new(runner_artifact).spec
+abort "Unexpected runner candidate" if runner_spec && runner_spec.name != "ctx_runner"
 spec = Gem::Package.new(artifact).spec
 abort "Unexpected package" unless spec.name == "vxlan"
 abort "Missing CLI guide" unless spec.files.include?("bin/README.md")
@@ -45,8 +48,11 @@ Dir.mktmpdir("gem-install-") do |home|
   env.merge!("GEM_HOME" => home, "GEM_PATH" => home, "RUBYOPT" => nil, "RUBYLIB" => nil, "HOME" => File.join(home, "user"), "XDG_CONFIG_HOME" => File.join(home, "config"))
   local_dependencies.each { |path| FileUtils.cp(path, home) }
   ruby = RbConfig.ruby
+  system(env, ruby, "-S", "gem", "install", runner_artifact, "--no-document", exception: true) if runner_artifact
   system(env, ruby, "-S", "gem", "install", artifact, "--no-document", exception: true)
+  activation = runner_spec ? "gem #{runner_spec.name.inspect}, #{"= #{runner_spec.version}".inspect}" : ""
   check = <<~RUBY
+    #{activation}
     require "vxlan"
     require "rbconfig"
     abort "Unexpected Rails dependency" if defined?(Rails)
@@ -86,7 +92,6 @@ Dir.mktmpdir("gem-install-") do |home|
     abort "Invalid plan checksum" unless File.read(plan_file + ".sha256").strip == Digest::SHA256.file(plan_file).hexdigest
     abort "Missing audit" unless JSON.parse(File.read(plan_file))["audits"].size == 1
 
-    system(command, "collect", "--help-all", exception: true)
     system(command, "parse", "--help-all", exception: true)
     File.write("ospf.txt", "Total number of neighbors: 0\\n")
     system(command, "parse", "--dimension", "ospf_neighbors", "--complete", "--json", "--file", "ospf.txt", exception: true)
@@ -94,8 +99,9 @@ Dir.mktmpdir("gem-install-") do |home|
     expect_package = #{expect_artifact.inspect}
     system(RbConfig.ruby, "-S", "gem", "install", expect_package, "--local", "--no-document", exception: true) if expect_package
     connector_package = #{connector_artifact.inspect}
-    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.16.0" ]
+    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.17.0" ]
     system(RbConfig.ruby, "-S", "gem", "install", *installation, "--no-document", exception: true)
+    system(command, "collect", "--help-all", exception: true)
     system(command, "collect", "--init", "--non-interactive", exception: true)
     config = File.join(ENV.fetch("XDG_CONFIG_HOME"), "net-connector/vxlan.yml")
     env_file = File.join(ENV.fetch("XDG_CONFIG_HOME"), "net-connector/.env")

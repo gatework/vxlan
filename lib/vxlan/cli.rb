@@ -15,7 +15,12 @@ module Vxlan
       when "--version", "-v"
         return out.puts(Vxlan::VERSION) || 0 if arguments.empty?
       when "collect"
-        require_relative "cli/collect"
+        begin
+          require_relative "cli/collect"
+        rescue LoadError
+          error.puts "collect 需要含共享清单筛选的当前 net-connector；请安装项目依赖。"
+          return 2
+        end
         return Collect.new(env: env, out: out, error: error, input: input, **collect_options).run(arguments)
       when "apply"
         require_relative "cli/apply"

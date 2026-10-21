@@ -25,6 +25,7 @@ Gem::Specification.new do |spec|
   spec.bindir = "bin"
   spec.executables = [ "vxlan" ]
 
+  spec.add_dependency "ctx_runner", "~> 0.1.0"
   spec.add_dependency "ctx_parser", "~> 0.2.0"
   spec.add_dependency "ctx_driver", "~> 0.2", ">= 0.2.4"
   spec.add_dependency "digest"

@@ -2,7 +2,19 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## 0.4.0 (2026-10-22)
+
+- Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
+
+- Centralize inventory selection and CLI filters in Net::Connector::Inventory; add vendor/model inclusion, exclusion and matching modes.
+
+
+- Delegate shared collection, evidence and execution contracts to ctx_runner.
+- Preserve domain parsing, change policies, CLI layouts and connection ownership.
+
 ## Unreleased
+
+- Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
 
 ## 0.3.1 (2026-10-21)
 

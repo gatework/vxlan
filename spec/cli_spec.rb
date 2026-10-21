@@ -60,6 +60,24 @@ RSpec.describe "VXLAN installed command" do
     expect(JSON.parse(stdout)).to include("status" => "complete", "records" => [])
   end
 
+  it "reports a missing collection dependency without a backtrace" do
+    program = <<~RUBY
+      require "vxlan/cli"
+      module Kernel
+        alias original_require require
+        def require(path)
+          raise LoadError, "missing selection" if path == "net/connector/inventory/filters"
+          original_require(path)
+        end
+      end
+      exit Vxlan::CLI.run(["collect", "--help"])
+    RUBY
+    _stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-I#{root}/lib", "-e", program)
+    expect(status.exitstatus).to eq(2)
+    expect(stderr).to include("net-connector")
+    expect(stderr).not_to include("LoadError", "<top (required)>")
+  end
+
   it "loads the library and CLI without the connector or executing a command" do
     program = 'require "vxlan/cli"; abort if defined?(Net::Connector); abort if $LOADED_FEATURES.any? { |f| f.include?("vxlan/cli/collect") }'
     stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-I#{root}/lib", "-e", program)

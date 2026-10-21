@@ -2,6 +2,9 @@
 
 require_relative "parser_registry"
 require "ctx_driver"
+require "ctx_runner/collection"
+require "ctx_runner/query"
+require_relative "collection_plan"
 require_relative "observation"
 require_relative "snapshot"
 
@@ -21,29 +24,12 @@ module Vxlan
       target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, connector.platform, model)
 
       observations = {}
-      session_started = session_finished = false
-      begin
-        connector.open do |session|
-          if session_started
-            dimensions.each { |name| observations[name] ||= failure(name, :session_reentered) }
-            observations[:collection] = failure(:collection, :session_reentered)
-            next
-          end
-          session_started = true
-          observations.merge!(read_dimensions(session, dimensions, profile))
-          session_finished = true
-        end
-      rescue StandardError => error
-        raise unless CtxDriver::Failure.connection_error?(error, connector)
-
-        code = CtxDriver::Failure.code(error, :connection_failed)
+      collection = CtxRunner::Collection.new
+      collection.open(connector) { |session| observations.merge!(read_dimensions(session, dimensions, profile)) }
+      if collection.failure
+        code = collection.failure.fetch(:code)
         dimensions.each { |name| observations[name] ||= failure(name, code) }
-        observations[:collection] = failure(:collection, session_finished ? :session_close_failed : code)
-      end
-      # 连接器正常返回也不等于已提供会话；缺少回调必须保留全部请求的失败事实。
-      unless session_finished || observations.key?(:collection)
-        dimensions.each { |name| observations[name] = failure(name, :session_not_opened) }
-        observations[:collection] = failure(:collection, :session_not_opened)
+        observations[:collection] = failure(:collection, code)
       end
       snapshot(target, fabric_key, observations)
     end
@@ -79,11 +65,11 @@ module Vxlan
       end
       ordered = dimensions.include?(:configuration) ? [ :configuration, *dimensions.reject { |name| name == :configuration } ] : dimensions
       ordered.each do |name|
-        config = observations[:configuration]
-        observations[name] = if name == :vpc && !reader.failure && unconfigured?(name, config)
+        plan = CollectionPlan.new(profile: profile, configuration: observations[:configuration])
+        observations[name] = if name == :vpc && !reader.failure && plan.unconfigured?(name)
           Observation.new(name: name, status: :complete, completed_at: @clock.call, issues: [ { code: :vpc_not_configured } ])
         else
-          collect_observation(reader, name, config, profile)
+          collect_observation(reader, name, plan, profile)
         end
       end
       dimensions.to_h { |name| [ name, observations.fetch(name) ] }
@@ -112,45 +98,18 @@ module Vxlan
     end
 
     # 解析失败限定在单条查询内；Reader 负责传输与回执校验。
-    def collect_observation(reader, name, configuration, profile)
+    def collect_observation(reader, name, plan, profile)
       command = profile.command(name)
-      capture = reader.read(command)
-      metadata = { started_at: capture.started_at, completed_at: capture.completed_at, evidence: capture.evidence }
-      unless capture.success?
-        return failed_capture(name, capture, command).with(**metadata)
+      unavailable = ->(view, capture, details) do
+        issue = details.merge(command: command)
+        issue[:skipped] = capture.skipped? unless capture.success?
+        failure(view, issue.fetch(:code), **issue.except(:code)).with(
+          started_at: capture.started_at, completed_at: capture.completed_at, evidence: capture.evidence)
       end
-      begin
-        body = capture.body
-        parsed = if body.strip.empty? && unconfigured?(name, configuration)
-          code = name == :port_channels ? :port_channels_not_configured : :nve_not_configured
-          Observation.new(name: name, status: :complete, issues: [ { code: code } ])
-        else
-          Observation.new(name: name, **profile.parse(name, body, complete: true).to_h)
-        end
-        parsed.with(**metadata)
-      rescue StandardError => error
-        details = CtxDriver::Failure.details(error, fallback: :command_processing_failed, stage: :parse)
-        failure(name, details.fetch(:code), **details.except(:code), command: command).with(**metadata)
-      end
-    end
-
-    # 保留传输首次不可用原因，并标记从未发送的命令。
-    def failed_capture(name, capture, command)
-      failure(name, capture.failure.fetch(:code), **capture.failure.except(:code), command: command, skipped: capture.skipped?)
-    end
-
-    # 仅当同一会话的完整配置证明功能未启用时，才接受空运行回显。
-    def unconfigured?(name, configuration)
-      return false unless configuration&.complete? && configuration.records.one?
-
-      settings = configuration.records.first
-      case name
-      when :vpc then !settings[:vpc_domain] && !settings.fetch(:features).include?("vpc")
-      when :nve_peers, :nve_vnis then !settings.fetch(:nve)[:interface]
-      when :port_channels
-        settings.fetch(:interfaces).none? { |interface, values| /\Aport-channel\d+\z/i.match?(interface) || values[:channel_group] }
-      else false
-      end
+      CtxRunner::Query.new(reader: reader, parser: plan).read(command, names: [ name ], unavailable: unavailable) do |view, result, capture|
+        Observation.new(name: view, **result.to_h, started_at: capture.started_at,
+          completed_at: capture.completed_at, evidence: capture.evidence)
+      end.fetch(name)
     end
 
     # 构建失败观测，不丢弃已成功的同级维度。

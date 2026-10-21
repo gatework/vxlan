@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "optparse"
+require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
 require "fileutils"
@@ -10,7 +11,7 @@ module Vxlan
   module CLI
     # 采集入口的公开参数；凭据始终留在环境中，不传入解析库或 YAML。
     class Options
-      FIELDS = %w[fabric fabric_policy devices netdisco inventory netdisco_config parallel directory dimensions ssh hosts exclude_hosts names exclude_names].freeze
+      FIELDS = (%w[fabric fabric_policy devices netdisco inventory netdisco_config parallel directory dimensions ssh] + Net::Connector::Inventory::Filters::FIELDS).freeze
       SSH_FIELDS = %w[port command_timeout login_timeout host_key_policy known_hosts].freeze
       SSH_DEFAULTS = { "host_key_policy" => "strict", "command_timeout" => 60, "login_timeout" => 15 }.freeze
       attr_reader :values, :config, :env_file, :flags, :fabric_policy, :environment
@@ -62,7 +63,7 @@ module Vxlan
         @environment = @files.environment
         @config, @env_file = @files.config, @files.env_file
       rescue LoadError
-        raise LoadError, "采集配置需要 net-connector >= 0.16.0；读取 .env 还需要 dotenv", cause: nil
+        raise LoadError, "采集配置需要 net-connector >= 0.17.0；读取 .env 还需要 dotenv", cause: nil
       end
 
       # 公共与专用文件先合并，进程值和 CLI 最后覆盖；数组不追加设备。
@@ -238,9 +239,12 @@ module Vxlan
           p.on("--fabric-policy FILE", "显式 Fabric/Leaf/Border/Spine 清单 YAML") { |v| @overrides["fabric_policy"] = File.expand_path(v) }
           p.on("--fabric NAME", "采集所属 Fabric 身份") { |v| @overrides["fabric"] = v }
           p.on("--dimensions LIST", "逗号分隔维度；--help 查看支持项") { |v| @overrides["dimensions"] = list(v) }
-          { "--host IP" => "hosts", "--hosts LIST" => "hosts", "--exclude-hosts LIST" => "exclude_hosts",
-            "--name LIST" => "names", "--exclude-name LIST" => "exclude_names" }.each do |option, key|
-            p.on(option, "筛选已有清单，同类条件取并集，排除优先") { |v| (@overrides[key] ||= []).concat(list(v)) }
+          Net::Connector::Inventory::Filters.add_options(p) do |key, value|
+            if value.is_a?(Array)
+              (@overrides[key] ||= []).concat(value)
+            else
+              @overrides[key] = value
+            end
           end
           p.on("--init", "创建缺失配置和环境模板后退出；已有文件不覆盖") { flags[:init] = true }
           p.on("--interactive", "缺少配置时询问是否创建；要求真实终端") { flags[:interactive] = true }
@@ -286,11 +290,8 @@ module Vxlan
           raise ArgumentError, "netdisco_config 须为配置路径，且不能同时声明 devices" unless values["netdisco_config"].is_a?(String) && !values["netdisco_config"].empty? && values["devices"].empty?
           values["netdisco_config"] = File.expand_path(values["netdisco_config"], Dir.pwd)
         end
-        %w[hosts exclude_hosts names exclude_names].each do |key|
-          items = values[key] = values.fetch(key, [])
-          raise ArgumentError, "#{key} 须为非空字符串数组" unless items.is_a?(Array) && items.all? { |v| v.is_a?(String) && !v.strip.empty? }
-        end
-        %w[hosts exclude_hosts].each { |key| values[key].each { |v| IPAddr.new(v) } }
+        Net::Connector::Inventory::Filters::LISTS.each_key { |key| values[key] = values.fetch(key, []) }
+        Net::Connector::Inventory::Filters.selection(values)
         ssh = values["ssh"]
         raise ArgumentError, "ssh 包含未知或敏感字段" unless ssh.is_a?(Hash) && (ssh.keys - SSH_FIELDS).empty?
         ssh = SSH_DEFAULTS.merge(ssh)

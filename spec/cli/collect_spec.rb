@@ -41,6 +41,16 @@ RSpec.describe Vxlan::CLI::Collect do
   end
 
   # 写入仅含合成设备的临时配置，不修改项目现场文件。
+  it "shares address, name, vendor and model selection without opening sessions" do
+    config(devices: [ { "host" => "192.0.2.10", "name" => "EDGE", "model" => "S6800" },
+      { "host" => "192.0.2.11", "name" => "EDGE-spare", "model" => "S6800" } ])
+    args = [ "--plan", "--json", "--hosts", "192.0.2.1-20", "--name", "edge", "--exclude-name", "spare",
+      "--vendor", "cisco_nxos", "--model", "s68*", "--model-match", "glob" ]
+    expect(run_example(runner, *args)).to eq(0)
+    expect(JSON.parse(@out.string).map { |row| row.fetch("host") }).to eq([ "192.0.2.10" ])
+    expect(Dir).not_to exist(File.join(@directory, "reports"))
+  end
+
   def config(**overrides)
     values = { "fabric" => "LAB", "parallel" => 2, "directory" => File.join(@directory, "reports"),
       "devices" => [ { "host" => "192.0.2.10", "name" => "LEAF-01" }, { "host" => "192.0.2.11", "name" => "LEAF-SPARE" } ],

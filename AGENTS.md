@@ -31,3 +31,9 @@
 - `bundle exec rake build` 后运行 `ruby script/verify_package.rb pkg/vxlan-<version>.gem`；脚本另支持连接器和 expect 候选包。源码联调与隔离安装分别验证。
 - CLI 修改后从实际 checkout 运行普通入口；不要只靠额外加载路径掩盖安装或配置错误。
 - 更新 CHANGELOG 和相关文档。审查/修复不自动授权提交、推送、发布或改变仓库可见性。
+
+## 公共业务流程
+
+采集会话约束、共享查询与事实外壳由 `ctx_runner` 提供；VXLAN/Wireless 的批量交付、报告检查点和变更执行也由 Runner 统一维护。领域规则、厂商命令、健康评估及操作租约留在当前模块，不复制公共状态机。
+
+源码联调使用 `CTX_RUNNER_PATH=../ctx_runner bundle exec rake`；普通安装验证不设置该变量。首次发布依赖顺序为 ctx_parser → ctx_driver → ctx_runner → 消费模块。未发布 Runner 时先构建安装候选包，隔离包验证显式传入候选，不能依靠相邻源码路径。

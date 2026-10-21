@@ -201,3 +201,15 @@ Fabric 的 ACL 比较包含有序规则和引用地址组的成员。对象缺�
 `fabric-policy.yml` 显式声明各 Fabric 的 `leaves`、`borders`、`spines`。Leaf 与 Border 按各自已部署的共同 VNI 比较；Spine 检查角色冲突。业务目录联合 VLAN/NVE/EVPN 识别不完整部署，总览显示覆盖范围、未纳入设备和缺证据成员。只有完整一致的对端与本机唯一业务接口相互印证、且全 Fabric 无跨 VNI 网段冲突时，才建议补齐已有 VLAN 的 VNI 关联；不会推导全量铺开 VLAN，也不按命名猜测角色。
 
 每次采集独立合并进程环境与指定 `.env`，不改写调用者环境；凭据、清单与参数使用同一份本次有效环境。Fabric 策略在连接前加载、校验并固定，采集中途修改策略文件只影响下一批。下发只接受带校验文件的 `plan.json` 与 `--item ID`，不接受旧版独立单项计划。
+
+## 统一设备筛选
+
+collect 的筛选与备份/拓扑共用 net-connector 的 Inventory::Selection。需要安装包含 `net/connector/inventory/filters` 的当前候选连接器；collect 帮助也从该组件读取参数定义，离线 parse/review 不加载它。
+
+```sh
+vxlan collect --hosts 192.0.2.0/24 --name edge --exclude-name spare --model 'S68*' --model-match glob --plan
+```
+
+IP 支持单地址、CIDR、范围；名称及型号支持 contains（默认）、prefix、glob，不区分大小写。`--vendor`/`--exclude-vendor` 使用连接器平台标识（如 cisco_nxos、h3c、h3c_wireless、huawei），不是原始厂商标签。同字段条件为 OR，跨字段为 AND，排除优先。缺失型号不命中包含规则。`--model`/`--exclude-model`、`--name-match`/`--model-match` 可组合；筛选只选择已有清单，不扫描地址、不扩大平台支持范围。
+
+YAML 顶层对应 hosts/exclude_hosts、names/exclude_names、vendors/exclude_vendors、models/exclude_models、name_match/model_match。Netdisco inventory 段使用 include_hosts/include_names/include_vendors/include_models 及对应 exclude 字段。

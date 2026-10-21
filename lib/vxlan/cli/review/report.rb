@@ -66,7 +66,7 @@ module Vxlan
           public_entries = entries.map { |entry| entry.reject { |key, _| %i[advice changes].include?(key) } }
           summary = { layout_version: 3, mode: "review", status: "incomplete", review_only: true, devices: entries.size, counts: counts, source_batch: source_batch,
             reports: public_entries, plan: "plan.json", plan_sha256: nil, fabric_findings: @fabric_audit ? @fabric_audit[:findings].size : 0 }
-          publish("summary.json", JSON.pretty_generate(summary) + "\n") if standalone
+          checkpoint("summary.json", summary) if standalone
           plan = { schema_version: 2, platform: "cisco_nxos", mode: "review", devices: public_entries, audits: entries.map { |entry| entry[:advice] },
             changes: entries.each_with_object({}) { |entry, all| all.merge!(entry[:changes]) }, fabric: @fabric_audit && @fabric_audit.reject { |key, _| key == :device_items } }
           body = JSON.pretty_generate(plan) + "\n"
@@ -78,15 +78,7 @@ module Vxlan
           text = summary_text(summary)
           if standalone
             publish("summary.txt", text)
-            begin
-              publish("summary.json", JSON.pretty_generate(summary.merge(status: "complete")) + "\n")
-            rescue CLI::Report::Error => error
-              restore_checkpoint(JSON.pretty_generate(summary) + "\n") if error.committed?
-              raise
-            rescue Interrupt
-              restore_checkpoint(JSON.pretty_generate(summary.merge(status: "interrupted")) + "\n")
-              raise
-            end
+            finalize("summary.json", summary.merge(status: "complete"), checkpoint: summary)
           end
           @review_summary, @review_text = summary.merge(status: "complete"), text
           @review_summary
