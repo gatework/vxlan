@@ -4,6 +4,11 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.3.1 (2026-10-21)
+
+- Index Fabric address-group evidence by referenced object, preserving host order and missing dependencies without repeatedly searching every host's reference list.
+- Add repository-specific AGENTS.md and a full Fabric review benchmark.
+
 ## 0.3.0 (2026-10-20)
 
 - Require ctx_driver 0.2.4+ for the current net-connector session protocol; CLI configuration and progress use net-connector 0.16.0.

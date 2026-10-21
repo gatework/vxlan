@@ -19,6 +19,23 @@ RSpec.describe "Fabric business consistency" do
     Vxlan::Fabric::Review.new(documents, { "fabrics" => { "test" => { "leaves" => documents.map { |d| d["device"]["host"] } } } }).call
   end
 
+  it "compares address groups only across referencing hosts and retains missing definitions in host order" do
+    documents = %w[192.0.2.1 192.0.2.2 192.0.2.3].map { |host| leaf(host, acl: nil) }
+    documents.each_with_index do |document, index|
+      config = document["snapshot"]["dimensions"]["configuration"]["records"][0]
+      expression = index == 2 ? "ip any any" : "ip addrgroup admins addrgroup admins"
+      config["acls"]["protect"][0]["expression"] = expression
+      config["address_groups"] = index == 1 ? {} : { "admins" => [ "192.0.2.0/24" ] }
+    end
+
+    findings = audit(*documents)[:findings].select { |entry| entry[:code] == "fabric_address_group" }
+
+    expect(findings.size).to eq(1)
+    expect(findings.first[:evidence]).to eq([
+      { host: "192.0.2.1", value: [ "192.0.2.0/24" ] }, { host: "192.0.2.2", value: nil }
+    ])
+  end
+
   def gateway_leaves(count)
     [ leaf("192.0.2.1"), leaf("192.0.2.2", address: nil) ].each_with_index.map do |document, host_index|
       config = document["snapshot"]["dimensions"]["configuration"]["records"][0]

@@ -247,10 +247,13 @@ module Vxlan
 
       # 展开引用对象的成员差异，避免只展示相同的 ACL 文本而隐藏实际匹配范围。
       def review_address_groups(fabric, configs)
-        references = configs.transform_values { |config| config.fetch("acls", {}).values.flatten.flat_map { |entry| entry["expression"].scan(/\baddrgroup\s+(\S+)/).flatten }.uniq }
-        names = references.values.flatten.uniq.sort
-        names.each do |name|
-          rows = configs.filter_map { |host, config| { host: host, value: config.fetch("address_groups", {})[name] } if references[host].include?(name) }
+        # 每台设备的引用去重后直接归入对象索引，避免每个对象再扫描所有引用。
+        references = {}
+        configs.each do |host, config|
+          names = config.fetch("acls", {}).values.flatten.flat_map { |entry| entry["expression"].scan(/\baddrgroup\s+(\S+)/).flatten }.uniq
+          names.each { |name| (references[name] ||= []) << { host: host, value: config.fetch("address_groups", {})[name] } }
+        end
+        references.sort.each do |name, rows|
           next unless rows.map { |row| row[:value] }.uniq.size > 1
           finding(fabric, nil, "fabric_address_group", "ACL 地址组 #{name} 成员不同或缺失；仅比较引用此对象的业务，不自动复制", rows)
         end
