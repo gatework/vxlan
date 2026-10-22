@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "digest"
+require "ctx_runner/fingerprint"
 require_relative "../../recommendations"
 require_relative "../../change_plan"
 
@@ -39,8 +40,8 @@ module Vxlan
             plan = ChangePlan.candidate(item[:change], config: config)
             next unless plan
             change = plan.to_h
-            id = [ basename, change["kind"], "vlan#{change['vlan']}", change["direction"], ChangePlan.fingerprint(change)[0, 12] ].compact.join("--")
-            config_sha256 ||= ChangePlan.fingerprint(config)
+            id = [ basename, change["kind"], "vlan#{change['vlan']}", change["direction"], CtxRunner::Fingerprint.call(change)[0, 12] ].compact.join("--")
+            config_sha256 ||= CtxRunner::Fingerprint.call(config)
             entry[:changes][id] = { schema_version: 1, platform: "cisco_nxos", device: document.fetch("device"), expected_config_sha256: config_sha256,
               source: source, source_sha256: source_sha256, change: change, commands: plan.commands, rollback: plan.rollback,
               scope: item[:scope], title: item[:title], prerequisites: item[:prerequisites], impact: item[:impact], verify: item[:verify] }

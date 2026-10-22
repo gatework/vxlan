@@ -70,13 +70,13 @@ module Vxlan
               scope.merge!(router_id: match[1], local_as: match[2])
             elsif (match = /\ANeighbor\s+T\s+AS\s+(?:(PfxRcd)\s+)?(Type-[1-9]\d*(?:\s+Type-[1-9]\d*)*)\z/.match(line))
               prefix_total = !match[1].nil?
-              prefix_columns = match[2].split.map { |column| column.downcase.delete("-").to_sym }
+              prefix_columns = match[2].split(" ").map { |column| column.downcase.delete("-").to_sym }
               if prefix_columns.uniq != prefix_columns || (prefix_columns - PREFIX_TYPES).any?
                 unparsed_records(number)
                 prefix_columns = nil
               end
             elsif prefix_columns
-              words = line.split
+              words = line.split(" ")
               address = CtxParser::Values.ip_address(words[0], allow_zone: true) if ip_address?(words[0])
               peer = peers[[ scope[:vrf], scope[:address_family], address ]]
               offset = prefix_total ? 4 : 3

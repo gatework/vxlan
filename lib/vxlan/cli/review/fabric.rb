@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "yaml"
+require "ctx_cli/input"
+require "ctx_runner/fingerprint"
 require_relative "../../fabric/review"
 
 module Vxlan
@@ -51,7 +53,7 @@ module Vxlan
               value = row.key?(:value) ? row[:value] : row.reject { |key, _| %i[host name vlan entries semantics].include?(key) }
               value = value.reject { |key, _| key == :entries } if value.is_a?(Hash)
               if row[:semantics]
-                policy = row[:policy] ? "规则与依赖版本 #{ChangePlan.fingerprint(row[:policy])[0, 12]}" : "依赖对象未验证"
+                policy = row[:policy] ? "规则与依赖版本 #{CtxRunner::Fingerprint.call(row[:policy])[0, 12]}" : "依赖对象未验证"
                 value = "#{row[:entries].size} 条规则，#{policy}"
               end
               [ row[:vlan] || row[:interface] || "公共", display_fabric_value(value) ]
@@ -91,7 +93,7 @@ module Vxlan
         # 实时收尾读取已经保存的事实；审查摘要交给采集摘要一起发布，避免相互覆盖。
         def review_collected_fabric(policy)
           sources = Dir[File.join(directory, "evidence", "*.json")].sort.map do |path|
-            body = File.read(path)
+            body = CtxCli::Input.read(path: path)
             [ File.expand_path(path), body, JSON.parse(body) ]
           end
           build_review(sources, policy: policy, standalone: false) unless sources.empty?

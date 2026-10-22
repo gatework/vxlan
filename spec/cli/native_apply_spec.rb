@@ -51,7 +51,7 @@ RSpec.describe "Native interactive configuration boundary" do
         change = { "kind" => "svi_acl", "vlan" => 8, "vni" => 10008, "acl" => "protect", "direction" => "out", "entries" => initial.fetch("acls").fetch("protect"), "create_acl" => false, "previous_binding" => nil }
         action = Vxlan::ChangePlan.build(change)
         commands, rollback = action.commands, action.rollback
-        plan = { schema_version: 1, platform: "cisco_nxos", device: { host: "192.0.2.1", name: "LEAF" }, expected_config_sha256: Vxlan::ChangePlan.fingerprint(initial), change: change, commands: commands, rollback: rollback }
+        plan = { schema_version: 1, platform: "cisco_nxos", device: { host: "192.0.2.1", name: "LEAF" }, expected_config_sha256: CtxRunner::Fingerprint.call(initial), change: change, commands: commands, rollback: rollback }
         body = JSON.generate(schema_version: 2, platform: "cisco_nxos", changes: { "attach-acl" => plan })
         hash = Digest::SHA256.hexdigest(body)
         path = File.join(root, "plan.json")

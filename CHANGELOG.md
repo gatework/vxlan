@@ -2,6 +2,23 @@
 
 Changes to the public contract are recorded here. Versions follow Semantic Versioning.
 
+## Unreleased
+
+## 0.4.2 (2026-10-23)
+
+- Migrate shared CLI entrypoints to ctx_cli 0.2.0 names without legacy aliases.
+- Delegate offline review entrypoint orchestration to ctx_cli and bound external evidence, plan, checksum and Fabric policy reads.
+- Share offline evidence validation and JSON conversion with Runner; reject missing snapshot target identities.
+- Use explicit field separators and align CLI dependency floors with shared inventory support.
+- Delegate shared command dispatch, option groups, initialization, terminal confirmation, offline IO and collection entrypoint flow to ctx_cli; retain domain and Runner responsibilities.
+
+## 0.4.1 (2026-10-22)
+
+- Delegate command dispatch, common options, initialization, terminal interaction, offline IO and collection entrypoint orchestration to ctx_cli 0.1.0.
+- Keep domain policies, device capabilities and ctx_runner completion semantics in their existing layers.
+
+- Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
+
 ## 0.4.0 (2026-10-22)
 
 - Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
@@ -11,15 +28,6 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 - Delegate shared collection, evidence and execution contracts to ctx_runner.
 - Preserve domain parsing, change policies, CLI layouts and connection ownership.
-
-## Unreleased
-
-## 0.4.1 (2026-10-22)
-
-- Delegate command dispatch, common options, initialization, terminal interaction, offline IO and collection entrypoint orchestration to ctx_cli 0.1.0.
-- Keep domain policies, device capabilities and ctx_runner completion semantics in their existing layers.
-
-- Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
 
 ## 0.3.1 (2026-10-21)
 

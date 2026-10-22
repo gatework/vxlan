@@ -36,7 +36,7 @@ RSpec.describe "Vxlan interactive apply" do
     Dir.mktmpdir do |root|
       action = Vxlan::ChangePlan.build(change)
       commands, rollback = action.commands, action.rollback
-      plan = { schema_version: 1, platform: "cisco_nxos", device: { "host" => "192.0.2.1", "name" => "test" }, expected_config_sha256: Vxlan::ChangePlan.fingerprint(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
+      plan = { schema_version: 1, platform: "cisco_nxos", device: { "host" => "192.0.2.1", "name" => "test" }, expected_config_sha256: CtxRunner::Fingerprint.call(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
       plan[:commands] = [ "reboot" ] if altered
       path = File.join(root, "plan.json")
       document = batch ? { schema_version: 2, platform: "cisco_nxos", changes: { "test-change" => plan, "other-change" => plan.merge(device: { "host" => "192.0.2.2", "name" => "other" }) } } : plan
@@ -81,6 +81,12 @@ RSpec.describe "Vxlan interactive apply" do
     end
   end
 
+  it "rejects an oversized plan before confirmation or connection" do
+    require "ctx_cli/input"
+    stub_const("CtxCli::Input::MAX_BYTES", 32)
+    expect(exercise).to include(status: 2, connections: [], writes: [], journals: [])
+  end
+
   it "requires a specific item from an aggregate plan and rejects unknown selection" do
     expect(exercise(batch: true, item: nil)).to include(status: 2, connections: [], writes: [])
     expect(exercise(batch: true, item: "missing")).to include(status: 2, connections: [], writes: [])
@@ -122,7 +128,7 @@ RSpec.describe "Vxlan interactive apply" do
   it "preserves verified facts but reports uncertainty when session finalization fails" do
     result = exercise(close_failure: true)
     expect(result[:status]).to eq(2)
-    expect(result[:journals].last).to include("status" => "uncertain", "observed_config_sha256" => Vxlan::ChangePlan.fingerprint(after_config))
+    expect(result[:journals].last).to include("status" => "uncertain", "observed_config_sha256" => CtxRunner::Fingerprint.call(after_config))
     expect(result[:error]).not_to include("private-close-detail")
   end
 
@@ -208,11 +214,11 @@ RSpec.describe "Vxlan interactive apply" do
 
       it "accepts the intended association despite changed digest and derived segment metadata" do
         after = parsed_configuration(configuration_text.sub("vlan 8\n", "vlan 8\n  vn-segment 10008\n"))
-        fingerprint = Vxlan::ChangePlan.fingerprint(config)
+        fingerprint = CtxRunner::Fingerprint.call(config)
         expect(after["config_digest"]).not_to eq(config["config_digest"])
         expect(after["segments"]).not_to eq(config["segments"])
         expect(Vxlan::ChangePlan.build(change).satisfied?(after, before: config)).to be(true)
-        expect(Vxlan::ChangePlan.fingerprint(config)).to eq(fingerprint)
+        expect(CtxRunner::Fingerprint.call(config)).to eq(fingerprint)
       end
     end
   end

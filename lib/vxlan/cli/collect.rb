@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
+require "ctx_cli/collection"
 require "vxlan"
 require "ctx_runner/batch"
-require "ctx_cli/collection"
 require_relative "options"
 require_relative "report"
 require_relative "connector"
@@ -34,7 +34,7 @@ module Vxlan
       def load_network
         require "net/connector"
       rescue LoadError
-        raise LoadError, "联网采集需要 net-connector >= 0.17.1；请在宿主 Gemfile 添加或 gem install net-connector", cause: nil
+        raise LoadError, "联网采集需要 net-connector >= 0.16.0；请在宿主 Gemfile 添加或 gem install net-connector", cause: nil
       end
 
       # YAML 静态设备或显式 Netdisco 来源二选一；所有重复地址在连接前拒绝。
@@ -68,18 +68,26 @@ module Vxlan
         end
         unless @executor
           require "net/connector/resources"
-          Net::Connector::Resources.prepare!(parallel: [ devices.size, options.values.fetch("parallel") ].min)
+          begin
+            Net::Connector::Resources.prepare!(parallel: [ devices.size, options.values.fetch("parallel") ].min)
+          rescue ArgumentError
+            raise CtxCli::Collection::Error, "本机文件描述符额度不足；请提高终端 ulimit -n 或降低 --parallel。已停止，未连接设备。", cause: nil
+          end
         end
         credentials
       end
 
-      def report(options) = Report.new(options.values.fetch("directory"), scripts: options.flags[:scripts] == true)
+      def report(options)
+        Report.new(options.values.fetch("directory"), scripts: options.flags[:scripts] == true)
+      rescue ArgumentError
+        raise CtxCli::Collection::Error, "报告目录无效；请使用真实私有目录、权限0700，并检查目录路径。", cause: nil
+      end
       def after_collect(report, options) = report.review_collected_fabric(options.fabric_policy)
 
       # 缺失用户名时不尝试连接；密码允许省略以支持明确的 SSH key/agent。
       def credentials!(options)
         username = secret(options, "NC_CISCO_NXOS_USERNAME") || secret(options, "NC_DEVICE_USERNAME")
-        raise ArgumentError, "请设置 NC_DEVICE_USERNAME 或 NC_CISCO_NXOS_USERNAME；密码可通过环境或 SSH key/agent 提供" unless username
+        raise CtxCli::Collection::Error, "请设置 NC_DEVICE_USERNAME 或 NC_CISCO_NXOS_USERNAME；密码可通过环境或 SSH key/agent 提供" unless username
         options.values.fetch("ssh").transform_keys(&:to_sym).merge(username: username,
           password: secret(options, "NC_CISCO_NXOS_PASSWORD") || secret(options, "NC_DEVICE_PASSWORD"), enable_password: secret(options, "NC_ENABLE_PASSWORD"))
       end

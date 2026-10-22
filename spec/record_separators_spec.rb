@@ -23,6 +23,7 @@ RSpec.describe "Host record separators" do
         # 宿主进程全局变量只在子进程内改变，避免污染其他测试。
         $/ = input
         $, = output
+        $; = ","
         samples.each do |name, text|
           raise "Changed #{name}" unless parser.parse(name, text, complete: true).to_h == expected.fetch(name)
         end

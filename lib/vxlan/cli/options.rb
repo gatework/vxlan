@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
+require "ctx_cli/collection"
+require "ctx_cli/input"
 require "optparse"
 require "ctx_cli/options"
 require "ctx_cli/terminal"
-require "ctx_cli/initialization"
+require "ctx_cli/initializer"
 require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
@@ -49,7 +51,7 @@ module Vxlan
       # 自动化拒绝强制问答；帮助分支无需检查终端或消费输入。
       def validate_interaction!(input:, error:)
         if flags[:interactive] && !CtxCli::Terminal.tty?(input, error)
-          raise ArgumentError, "--interactive 需要交互终端；自动化请使用 --init --non-interactive"
+          raise CtxCli::Collection::Error, "--interactive 需要交互终端；自动化请使用 --init --non-interactive"
         end
       end
 
@@ -91,7 +93,7 @@ module Vxlan
         @fabric_policy = nil
         if values["fabric_policy"]
           raise ArgumentError, "fabric_policy 须为路径" unless values["fabric_policy"].is_a?(String)
-          policy = YAML.safe_load(File.read(values["fabric_policy"]), aliases: false)
+          policy = YAML.safe_load(CtxCli::Input.read(path: values["fabric_policy"]), aliases: false)
           Vxlan::Fabric::Scope.new(policy)
           @fabric_policy = CtxParser::Immutable.copy(policy)
         end
@@ -154,7 +156,7 @@ module Vxlan
         template = template.lines("\n").select { |line| line.start_with?("#") }.join("") +
           Net::Connector::Config.dump(document, name: "vxlan", path: config)
         { config => template, env_file => File.read(File.join(__dir__, "templates/env.example")) }.each do |path, body|
-          status = CtxCli::Initialization.new(prefix: ".vxlan-init-").create(path: path, contents: body)
+          status = CtxCli::Initializer.new(prefix: ".vxlan-init-").create(path: path, contents: body)
           @out.puts "#{status == :created ? '已创建' : '已保留'}：#{path}"
         end
         @out.puts "请检查配置及凭据后再次运行；本次未读取清单、未连接设备。"

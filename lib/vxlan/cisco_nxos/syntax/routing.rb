@@ -54,7 +54,7 @@ module Vxlan
                 next issue(child)
               end
 
-              (values[:networks] ||= []) << { prefix: network_prefix(subnet, family: family.split.first), route_map: route_map }.compact
+              (values[:networks] ||= []) << { prefix: network_prefix(subnet, family: family.split(" ").first), route_map: route_map }.compact
             when /\Aredistribute (\S+)(?: (?!route-map\b)(\S+))?(?: route-map (\S+))?\z/
               values[:redistribute] << { protocol: $1, process: $2, route_map: $3 }.compact
             when /\Aretain route-target (all|route-map \S+)\z/ then assign(values, :retain_route_target, $1, child)

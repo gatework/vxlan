@@ -239,7 +239,7 @@ module Vxlan
 
         # 提取支持的键值配置对。
         def parse_keyword_pairs(text, allowed)
-          words = text.split
+          words = text.split(" ")
           raise ArgumentError unless words.size.even? && (words.each_slice(2).map(&:first) - allowed).empty?
           values = words.each_slice(2).to_h.transform_keys(&:to_sym)
           raise ArgumentError unless values.size == words.size / 2
@@ -250,7 +250,7 @@ module Vxlan
 
         # 归一化静态路由及可选下一跳属性。
         def static_route(block)
-          words = block.text.split
+          words = block.text.split(" ")
           raise ArgumentError if words.size < 4
           validate_static_next_hop(words.drop(3))
 

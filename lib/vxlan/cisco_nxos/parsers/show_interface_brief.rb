@@ -23,7 +23,7 @@ module Vxlan
             elsif line.match?(/\AInterface(?:\s+Ch #)?\z/i)
               next
             else
-              words = line.split
+              words = line.split(" ")
               state = words.index { |word| %w[up down connected notconnect disabled admin-down].include?(word.downcase) }
               unless layout && state && INTERFACE.match?(words[0])
                 unparsed_records(number)

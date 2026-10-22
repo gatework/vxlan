@@ -59,7 +59,7 @@ The gem installs `vxlan`; its implementation lives in `lib/vxlan/cli/`. The scri
 ```sh
 gem install vxlan
 # Optional dependencies for live collection and .env files:
-gem install net-connector -v '~> 0.16.0'
+gem install net-connector -v '~> 0.17.1'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only
@@ -136,3 +136,5 @@ MIT. See [LICENSE](LICENSE).
 `vxlan collect` 默认输出逐设备诊断，使用 `--scripts` 可选导出配置建议；`vxlan review --batch DIR` 可离线补生成既有报告的候选配置、条件回退和只读验收命令。导出不会执行变更；独立 `apply --plan FILE --item ID` 必须在真实终端明确确认，配置漂移或失败即停止。详见[修复建议说明](docs/remediation.md)。 业务分层、会话所有权与执行边界见[架构说明](docs/architecture-zh.md)。
 
 Review output follows the net-connector topology layout: `summary.txt`, `summary.json`, `devices/*.txt`, optional `scripts/*.cfg`, and a checksummed `plan.json`. Generated reports contain no Markdown. Select exactly one change with `vxlan apply --plan plan.json --item ID`; interactive confirmation remains mandatory.
+
+Offline review requires `snapshot.target.host` to match the canonical device host. Reports without target identity must be collected again; the unbound legacy format is no longer accepted.

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "observation"
+require "ctx_parser/result"
 
 module Vxlan
   # 配置证据约束运行查询：明确未启用的功能才允许空回显或省略查询。

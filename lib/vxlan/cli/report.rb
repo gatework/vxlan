@@ -3,6 +3,7 @@
 require "json"
 require "time"
 require "ctx_runner/report"
+require "ctx_runner/document"
 require_relative "review/report"
 require_relative "review/fabric"
 
@@ -36,9 +37,9 @@ module Vxlan
         name = self.class.device_basename(device)
         # 保存状态属于批次宿主；不能让正在发布的文件预先声明自身已保存。
         body = result.reject { |key, _| key == :report_saved }.merge(snapshot: snapshot && snapshot.to_h)
-        document = JSON.parse(JSON.generate(serializable(body)))
+        document = CtxRunner::Document.call(body)
         advice = report_advice(Recommendations.new(document).call)
-        document["recommendations"] = advice
+        document = document.merge("recommendations" => advice)
         json = JSON.pretty_generate(document) + "\n"
         prepare_directory(File.join(directory, "evidence"))
         publish("evidence/#{name}.json", json)
@@ -71,7 +72,6 @@ module Vxlan
       # 保持领域呈现接口，事务与恢复状态仅在公共报告中实现。
       def prepare_directory(path) = @report.prepare_directory(path)
       def publish(relative, body) = @report.publish(relative, body)
-      def serializable(value) = @report.serializable(value)
       def checkpoint(relative, value) = @report.checkpoint(relative, value)
       def finalize(relative, summary, checkpoint:) = @report.finalize(relative, summary, checkpoint: checkpoint)
     end

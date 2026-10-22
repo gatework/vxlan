@@ -76,7 +76,7 @@ module Vxlan
           analyze_children(block) do |child|
             case child.text
             when /\Amatch (ip|ipv6) (address|next-hop|route-source) prefix-list (.+)\z/
-              family, selector, names = $1 == "ip" ? "ipv4" : "ipv6", $2, $3.split
+              family, selector, names = $1 == "ip" ? "ipv4" : "ipv6", $2, $3.split(" ")
               values[:prefix_lists].concat(names) if family == "ipv4" && selector == "address"
               (values[:prefix_list_matches] ||= []) << { address_family: family, selector: selector, names: names }
             when /\Amatch / then values[:additional_matches] << child.text

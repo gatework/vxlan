@@ -8,6 +8,19 @@ require "stringio"
 require "digest"
 
 RSpec.describe "Vxlan offline review" do
+  it "rejects oversized source documents before creating reports" do
+    require "ctx_cli/input"
+    stub_const("CtxCli::Input::MAX_BYTES", 32)
+    Dir.mktmpdir do |root|
+      Dir.mkdir(File.join(root, "evidence"))
+      File.write(File.join(root, "evidence", "large.json"), JSON.generate(device: { name: "AC", host: "192.0.2.1" }, snapshot: nil))
+      error = StringIO.new
+      expect(Vxlan::CLI.run([ "review", "--batch", root ], out: StringIO.new, error: error)).to eq(2)
+      expect(File.exist?(File.join(root, "reviews"))).to be(false)
+      expect(error.string).not_to include("192.0.2.1")
+    end
+  end
+
   it "displays unknown ACL dependencies explicitly instead of fingerprinting an unverified policy" do
     Dir.mktmpdir do |root|
       report = Vxlan::CLI::Report.new(root)
@@ -18,7 +31,7 @@ RSpec.describe "Vxlan offline review" do
       audit = { findings: [ { fabric: "test", code: "fabric_acl_content", title: "ACL diff", evidence: rows } ] }
       text = report.fabric_text(audit, [])
       expect(text).to include("依赖对象未验证", "deny ip addrgroup UNKNOWN any", "permit ip addrgroup UNKNOWN any")
-      expect(text).not_to include(Vxlan::ChangePlan.fingerprint(nil)[0, 12])
+      expect(text).not_to include(CtxRunner::Fingerprint.call(nil)[0, 12])
     end
   end
 
@@ -69,7 +82,7 @@ RSpec.describe "Vxlan offline review" do
         config = { "review_status" => "complete", "vlan_vnis" => { "8" => 10008 }, "vrfs" => {}, "evpn" => { "10008" => { "type" => "l2" } }, "nve" => { "members" => { "10008" => { "associate_vrf" => false, "replication" => "bgp" } } },
           "interfaces" => { "Vlan8" => { "addresses" => [ "192.0.2.254/24" ], "vrf" => "tenant", "anycast" => true, "acl_bindings" => index.zero? ? { "out" => "protect" } : {} } },
           "acls" => { "protect" => [ { "sequence" => 10, "action" => "permit", "expression" => "ip any any" } ] } }
-        document = { device: { host: host, name: "leaf#{index}", platform: "cisco_nxos" }, snapshot: { dimensions: { configuration: { status: "complete", records: [ config ], issues: [] } } } }
+        document = { device: { host: host, name: "leaf#{index}", platform: "cisco_nxos" }, snapshot: { target: { host: host }, dimensions: { configuration: { status: "complete", records: [ config ], issues: [] } } } }
         File.write(File.join(batch, "evidence", "leaf#{index}.json"), JSON.generate(document))
       end
       policy = File.join(root, "fabric.yml")
@@ -137,7 +150,7 @@ RSpec.describe "Vxlan offline review" do
       Dir.mkdir(batch)
       Dir.mkdir(File.join(batch, "evidence"))
       source = File.join(batch, "evidence", "leaf.json")
-      body = JSON.generate(device: { name: "LEAF", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: { dimensions: { configuration: { status: "partial", records: [], issues: [] } } })
+      body = JSON.generate(device: { name: "LEAF", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "partial", records: [], issues: [] } } })
       File.write(source, body)
       out, error = StringIO.new, StringIO.new
       status = Vxlan::CLI.run([ "review", "--batch", batch, "--output", File.join(root, "out") ], out: out, error: error)
@@ -177,7 +190,7 @@ RSpec.describe "Vxlan offline review" do
   it "rejects malformed nested observations through the normal error channel" do
     Dir.mktmpdir do |root|
       Dir.mkdir(File.join(root, "evidence"))
-      File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { dimensions: { configuration: { status: "partial", records: [], issues: "private-password" } } }))
+      File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "partial", records: [], issues: "private-password" } } }))
       error = StringIO.new
       expect(Vxlan::CLI.run([ "review", "--batch", root ], error: error, out: StringIO.new)).to eq(2)
       expect(error.string).not_to include("private-password")
@@ -190,7 +203,7 @@ RSpec.describe "Vxlan offline review" do
       { address_groups: "private-value" }, { address_groups: { admins: [ "private-value" ] } } ].each do |record|
       Dir.mktmpdir do |root|
         Dir.mkdir(File.join(root, "evidence"))
-        File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { dimensions: { configuration: { status: "complete", records: [ record ] } } }))
+        File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "complete", records: [ record ] } } }))
         error = StringIO.new
         expect(Vxlan::CLI.run([ "review", "--batch", root ], error: error, out: StringIO.new)).to eq(2)
         expect(error.string).not_to include("private-value")

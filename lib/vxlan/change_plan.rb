@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "ctx_runner/fingerprint"
-require "json"
 require "ipaddr"
 require "ctx_parser/immutable"
 require_relative "acl_policy"
@@ -32,12 +31,6 @@ module Vxlan
     rescue ArgumentError
       nil
     end
-
-    # 字符串键规范化后计算语义指纹；Hash 顺序不影响结果，数组保留业务顺序。
-    def self.fingerprint(value) = CtxRunner::Fingerprint.call(value)
-
-    # 兼容既有领域入口，配置身份协议仅由 Runner 实现。
-    def self.canonical(value) = CtxRunner::Fingerprint.canonical(value)
 
     # 构造时一次校验和渲染，随后调用者不能改变已确认的参数或命令。
     def initialize(change)
@@ -112,7 +105,7 @@ module Vxlan
 
     # 元数据与可推导事实不参与漂移比较；每种动作只移除其允许变化的字段。
     def preserved_context(config)
-      context = ChangePlan.canonical(config).except("config_digest", "review_status", "review_findings", "segments", "unnumbered_addresses")
+      context = CtxRunner::Fingerprint.canonical(config).except("config_digest", "review_status", "review_findings", "segments", "unnumbered_addresses")
       context.fetch("acls", {}).transform_values! { |entries| AclPolicy.rules(entries) }
       remove_changed_fields(context)
       context

@@ -51,7 +51,7 @@ module Vxlan
         # 将回显的聚合成员归一化为接口身份及状态标志。
         def parse_members(text)
           return [] if text.empty? || text == "--"
-          text.split.filter_map do |word|
+          text.split(" ").filter_map do |word|
             match = /\A(Eth(?:ernet)?[\d\/]+)\(([^\s()]+)\)\z/i.match(word)
             @issues << { code: :invalid_port_channel_member } unless match
             { interface: match[1], flags: match[2] } if match

@@ -17,7 +17,7 @@ bundle exec ruby examples/offline.rb
 
 `bin/` 的公开内容是 `vxlan` 与本说明；现场 `vxlan.yml`、`.env`、`vxlans/` 由用户按需创建，不进入版本库或安装包。配置和凭据模板统一位于 `lib/vxlan/cli/templates/`，使用 `--init` 生成，不维护重复模板。
 
-离线解析和帮助不加载 net-connector。采集配置与联网入口可选依赖 `net-connector ~> 0.17.1`（已包含 `.env` 加载依赖 dotenv）。本仓库 Gemfile 的 `examples` 组已声明连接器，不进入 vxlan.gemspec 的运行依赖。只安装 vxlan gem 的宿主需要自行声明相应可选依赖。
+离线解析和帮助不加载 net-connector。采集配置与联网入口可选依赖 `net-connector ~> 0.16.0`（已包含 `.env` 加载依赖 dotenv）。本仓库 Gemfile 的 `examples` 组已声明连接器，不进入 vxlan.gemspec 的运行依赖。只安装 vxlan gem 的宿主需要自行声明相应可选依赖。
 
 ## 正式命令
 
@@ -25,7 +25,7 @@ bundle exec ruby examples/offline.rb
 
 ```sh
 gem install vxlan
-gem install net-connector -v '~> 0.17.1'
+gem install net-connector -v '~> 0.16.0'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only

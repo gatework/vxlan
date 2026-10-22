@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "vxlan/version"
-require "ctx_cli/application"
+require "ctx_cli/router"
 
 module Vxlan
   # 命令入口按需加载采集或解析实现；核心库无需加载 CLI。
@@ -31,7 +31,7 @@ module Vxlan
           Parse.new(out: out, error: error, input: input, command: collect_options.fetch(:command, "vxlan parse")).run(arguments)
         end
       }
-      CtxCli::Application.new(name: "vxlan", version: Vxlan::VERSION, usage: USAGE,
+      CtxCli::Router.new(name: "vxlan", version: Vxlan::VERSION, usage: USAGE,
         commands: commands, out: out, error: error).run(argv)
     end
 

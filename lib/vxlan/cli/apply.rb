@@ -2,7 +2,9 @@
 
 require "optparse"
 require "ctx_cli/terminal"
+require "ctx_cli/input"
 require "json"
+require "ctx_runner/document"
 require "digest"
 require "ctx_runner/execution"
 require "ipaddr"
@@ -26,7 +28,7 @@ module Vxlan
         raise IOError, "配置回读失败" unless capture.success?
         observation = Vxlan::Config.new.parse(capture.body, complete: true)
         raise ArgumentError, "配置证据不完整" unless observation.complete? && observation.records.one?
-        JSON.parse(JSON.generate(observation.records.first))
+        CtxRunner::Document.call(observation.records.first)
       end
 
       # 每次只发一条命令；失败立即交还宿主，原始输出不进入终端和日志报告。
@@ -63,7 +65,7 @@ module Vxlan
         terminal = CtxCli::Terminal.new(input: @input, out: @out)
         terminal.require_tty!(@error)
         raise ArgumentError, "需要单个计划" unless rest.empty? && options[:plan] && options[:port].between?(1, 65_535)
-        body = File.read(options[:plan])
+        body = CtxCli::Input.read(path: options[:plan])
         hash = Digest::SHA256.hexdigest(body)
         plan = CtxParser::Immutable.copy(select_plan(JSON.parse(body), options, hash))
         change = validate_plan(plan)
@@ -100,7 +102,7 @@ module Vxlan
             id.is_a?(String) && id.match?(/\A[A-Za-z0-9_.-]+\z/) && document["changes"].key?(id)
           raise ArgumentError, "需要批次计划及有效 --item"
         end
-        raise ArgumentError, "计划校验失败" unless File.read("#{options[:plan]}.sha256").strip == hash
+        raise ArgumentError, "计划校验失败" unless CtxCli::Input.read(path: "#{options[:plan]}.sha256", max_bytes: 128).strip == hash
         document["changes"].fetch(id)
       end
 

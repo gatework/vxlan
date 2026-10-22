@@ -192,7 +192,7 @@ module Vxlan
           name = row[:svi]&.dig("acl_bindings", direction)
           entries = name && row[:config].fetch("acls", {})[name]
           policy = policies.dig(row[:host], name)
-          { acl: name, defined: !entries.nil?, entries: entries, policy_verified: !policy.nil?, address_groups: policy&.address_groups, digest: policy && ChangePlan.fingerprint(policy.to_h) }
+          { acl: name, defined: !entries.nil?, entries: entries, policy_verified: !policy.nil?, address_groups: policy&.address_groups, digest: policy && CtxRunner::Fingerprint.call(policy.to_h) }
         end
         code = different_binding ? "fabric_acl_binding" : "fabric_acl_content"
         finding(fabric, vni, code, "#{direction} 方向 ACL 挂载/有序规则不一致", evidence)
