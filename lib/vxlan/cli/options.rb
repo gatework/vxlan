@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
 require "optparse"
+require "ctx_cli/options"
+require "ctx_cli/terminal"
+require "ctx_cli/initialization"
 require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
-require "fileutils"
-require "tempfile"
 
 module Vxlan
   module CLI
@@ -47,7 +48,7 @@ module Vxlan
 
       # 自动化拒绝强制问答；帮助分支无需检查终端或消费输入。
       def validate_interaction!(input:, error:)
-        if flags[:interactive] && !(input.tty? && error.tty?)
+        if flags[:interactive] && !CtxCli::Terminal.tty?(input, error)
           raise ArgumentError, "--interactive 需要交互终端；自动化请使用 --init --non-interactive"
         end
       end
@@ -63,7 +64,7 @@ module Vxlan
         @environment = @files.environment
         @config, @env_file = @files.config, @files.env_file
       rescue LoadError
-        raise LoadError, "采集配置需要 net-connector >= 0.17.0；读取 .env 还需要 dotenv", cause: nil
+        raise LoadError, "采集配置需要 net-connector >= 0.17.1；读取 .env 还需要 dotenv", cause: nil
       end
 
       # 公共与专用文件先合并，进程值和 CLI 最后覆盖；数组不追加设备。
@@ -150,22 +151,11 @@ module Vxlan
         end
         overrides_parallel = @overrides.key?("parallel") || parallel_source&.fetch("VXLAN_PARALLEL", nil)
         document = overrides_parallel ? values : values.reject { |key, _| key == "parallel" }
-        template = template.lines.select { |line| line.start_with?("#") }.join +
+        template = template.lines("\n").select { |line| line.start_with?("#") }.join("") +
           Net::Connector::Config.dump(document, name: "vxlan", path: config)
         { config => template, env_file => File.read(File.join(__dir__, "templates/env.example")) }.each do |path, body|
-          FileUtils.mkdir_p(File.dirname(path), mode: 0o700)
-          begin
-            Tempfile.create([ ".vxlan-init-", ".tmp" ], File.dirname(path)) do |file|
-              file.chmod(0o600)
-              file.write(body)
-              file.flush
-              file.fsync
-              File.link(file.path, path)
-            end
-            @out.puts "已创建：#{path}"
-          rescue Errno::EEXIST
-            @out.puts "已保留：#{path}"
-          end
+          status = CtxCli::Initialization.new(prefix: ".vxlan-init-").create(path: path, contents: body)
+          @out.puts "#{status == :created ? '已创建' : '已保留'}：#{path}"
         end
         @out.puts "请检查配置及凭据后再次运行；本次未读取清单、未连接设备。"
       end
@@ -175,10 +165,10 @@ module Vxlan
         @files.load
         @config, @env_file = @files.config, @files.env_file
         return false unless @files.missing?
-        if input.tty? && error.tty? && flags[:interactive] != false
-          error.print "配置不存在：#{config}；是否创建配置与环境模板？[y/N] "
-          error.flush
-          if input.gets&.strip&.match?(/\Ay(?:es)?\z/i)
+        terminal = CtxCli::Terminal.new(input: input, out: error)
+        if terminal.tty? && flags[:interactive] != false
+          answer = terminal.question("配置不存在：#{config}；是否创建配置与环境模板？[y/N] ")
+          if answer&.match?(/\Ay(?:es)?\z/i)
             initialize_files
             return true
           end
@@ -232,10 +222,14 @@ module Vxlan
       def parser
         OptionParser.new do |p|
           p.banner = "用法：#{@command} [选项]（只读 VXLAN 采集）"
-          p.on("--config FILE", "最高优先级 YAML，叠加系统/用户/脚本/工作目录配置") { |v| @explicit_config = File.expand_path(v) }
-          p.on("--env-file FILE", "最高优先级环境文件；进程环境仍优先") { |v| @explicit_env_file = File.expand_path(v) }
-          p.on("-p", "--parallel N", Integer, "设备并发 1～500；继承 NC_PARALLEL，未配置时 4") { |v| @overrides["parallel"] = v }
-          p.on("--directory DIR", "按设备保存报告的目录") { |v| @overrides["directory"] = File.expand_path(v) }
+          CtxCli::Options.configuration(p, parallel_help: "设备并发 1～500；继承 NC_PARALLEL，未配置时 4") do |key, value|
+            case key
+            when :config then @explicit_config = File.expand_path(value, Dir.pwd)
+            when :env_file then @explicit_env_file = File.expand_path(value, Dir.pwd)
+            when :directory then @overrides["directory"] = File.expand_path(value, Dir.pwd)
+            when :parallel then @overrides["parallel"] = value
+            end
+          end
           p.on("--fabric-policy FILE", "显式 Fabric/Leaf/Border/Spine 清单 YAML") { |v| @overrides["fabric_policy"] = File.expand_path(v) }
           p.on("--fabric NAME", "采集所属 Fabric 身份") { |v| @overrides["fabric"] = v }
           p.on("--dimensions LIST", "逗号分隔维度；--help 查看支持项") { |v| @overrides["dimensions"] = list(v) }
@@ -246,29 +240,19 @@ module Vxlan
               @overrides[key] = value
             end
           end
-          p.on("--init", "创建缺失配置和环境模板后退出；已有文件不覆盖") { flags[:init] = true }
-          p.on("--interactive", "缺少配置时询问是否创建；要求真实终端") { flags[:interactive] = true }
-          p.on("--non-interactive", "禁用问答；创建文件须同时指定 --init") { flags[:interactive] = false }
+          CtxCli::Options.initialization(p, flags)
           p.on("--plan", "--inventory-only", "预览筛选清单，不连接设备") { flags[:inventory_only] = true }
           p.on("--show-config", "查看公开有效配置") { flags[:show_config] = true }
-          p.on("--json", "stdout 输出 JSON；默认显示可读摘要") { flags[:json] = true }
-          p.on("--quiet", "--no-progress", "关闭 stderr 进度，可配合 --json") { flags[:quiet] = true }
+          CtxCli::Options.output(p, flags)
           p.on("--[no-]scripts", "可选导出配置建议，默认仅诊断") { |value| flags[:scripts] = value }
-          p.on("--verbose", "显示逐台结果及安全命令事件") { flags[:verbose] = true }
-          p.on("-h", "--help", "查看选项帮助") { flags[:help] = true }
-          p.on("--help-all", "查看全部选项、路径与环境约定") { flags[:help_all] = true }
-          p.on("--examples", "查看常用命令范例，不执行任务") { flags[:examples] = true }
+          CtxCli::Options.information(p, flags)
           p.separator "维度：#{Vxlan::Collector::COMMANDS.keys.join(', ')}"
           p.separator "优先级：CLI > 进程环境 > YAML > .env > 内置默认值。退出码：0 完整/预览；1 未完成/无目标；2 参数/持久化错误；130 取消。"
         end
       end
 
       # 列表中的空项属于输入错误，不能被静默删掉。
-      def list(value)
-        values = value.split(",", -1).map(&:strip)
-        raise ArgumentError, "列表不能有空项" if values.any?(&:empty?)
-        values
-      end
+      def list(value) = CtxCli::Options.list(value)
 
       # 先验证整批策略，避免在前面设备连接后才发现后面的非法配置。
       def validate!

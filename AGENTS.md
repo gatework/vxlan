@@ -37,3 +37,8 @@
 采集会话约束、共享查询与事实外壳由 `ctx_runner` 提供；VXLAN/Wireless 的批量交付、报告检查点和变更执行也由 Runner 统一维护。领域规则、厂商命令、健康评估及操作租约留在当前模块，不复制公共状态机。
 
 源码联调使用 `CTX_RUNNER_PATH=../ctx_runner bundle exec rake`；普通安装验证不设置该变量。首次发布依赖顺序为 ctx_parser → ctx_driver → ctx_runner → 消费模块。未发布 Runner 时先构建安装候选包，隔离包验证显式传入候选，不能依靠相邻源码路径。
+
+## 公共 CLI
+
+配置读取、私有初始化、终端边界和公共参数使用 ctx_cli；不要复制对应实现。领域策略与设备能力留在当前仓库，ctx_runner 继续决定业务完成状态。`CTX_CLI_PATH=../ctx_cli` 显式源码联调；普通入口与安装验证使用候选 gem，不能隐式探测相邻目录。
+包验证的第五个位置参数为 ctx_cli 候选；前四个仍为当前包、net-connector、expect-pty、ctx_runner。首次发布前须构建安装依赖候选；未发布版本不得靠在线索引假定可用。

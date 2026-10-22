@@ -17,7 +17,7 @@ bundle exec ruby examples/offline.rb
 
 `bin/` 的公开内容是 `vxlan` 与本说明；现场 `vxlan.yml`、`.env`、`vxlans/` 由用户按需创建，不进入版本库或安装包。配置和凭据模板统一位于 `lib/vxlan/cli/templates/`，使用 `--init` 生成，不维护重复模板。
 
-离线解析和帮助不加载 net-connector。采集配置与联网入口可选依赖 `net-connector ~> 0.16.0`（已包含 `.env` 加载依赖 dotenv）。本仓库 Gemfile 的 `examples` 组已声明连接器，不进入 vxlan.gemspec 的运行依赖。只安装 vxlan gem 的宿主需要自行声明相应可选依赖。
+离线解析和帮助不加载 net-connector。采集配置与联网入口可选依赖 `net-connector ~> 0.17.1`（已包含 `.env` 加载依赖 dotenv）。本仓库 Gemfile 的 `examples` 组已声明连接器，不进入 vxlan.gemspec 的运行依赖。只安装 vxlan gem 的宿主需要自行声明相应可选依赖。
 
 ## 正式命令
 
@@ -25,7 +25,7 @@ bundle exec ruby examples/offline.rb
 
 ```sh
 gem install vxlan
-gem install net-connector -v '~> 0.16.0'
+gem install net-connector -v '~> 0.17.1'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only
@@ -213,3 +213,7 @@ vxlan collect --hosts 192.0.2.0/24 --name edge --exclude-name spare --model 'S68
 IP 支持单地址、CIDR、范围；名称及型号支持 contains（默认）、prefix、glob，不区分大小写。`--vendor`/`--exclude-vendor` 使用连接器平台标识（如 cisco_nxos、h3c、h3c_wireless、huawei），不是原始厂商标签。同字段条件为 OR，跨字段为 AND，排除优先。缺失型号不命中包含规则。`--model`/`--exclude-model`、`--name-match`/`--model-match` 可组合；筛选只选择已有清单，不扫描地址、不扩大平台支持范围。
 
 YAML 顶层对应 hosts/exclude_hosts、names/exclude_names、vendors/exclude_vendors、models/exclude_models、name_match/model_match。Netdisco inventory 段使用 include_hosts/include_names/include_vendors/include_models 及对应 exclude 字段。
+
+## ctx_cli 公共入口
+
+分发、公共选项、配置初始化、离线输入输出、终端确认和采集入口由 ctx_cli 组合提供；领域规则与 ctx_runner 业务状态保持各自职责。`CTX_CLI_PATH=../ctx_cli bundle exec rake` 用于源码联调；普通入口先安装 ctx_cli 候选包。

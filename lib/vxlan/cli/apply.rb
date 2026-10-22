@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "optparse"
+require "ctx_cli/terminal"
 require "json"
 require "digest"
 require "ctx_runner/execution"
@@ -59,7 +60,8 @@ module Vxlan
         end
         rest = parser.parse(argv.dup)
         return @out.puts(parser) || 0 if options[:help]
-        raise ArgumentError, "必须使用真实交互终端" unless @input.tty? && @out.tty? && @error.tty?
+        terminal = CtxCli::Terminal.new(input: @input, out: @out)
+        terminal.require_tty!(@error)
         raise ArgumentError, "需要单个计划" unless rest.empty? && options[:plan] && options[:port].between?(1, 65_535)
         body = File.read(options[:plan])
         hash = Digest::SHA256.hexdigest(body)
@@ -71,9 +73,8 @@ module Vxlan
         @out.puts Array(plan["prerequisites"]).map { |value| "条件：#{value}" }
         @out.puts "计划 SHA256：#{hash}\n拟执行命令：\n#{change.commands.join("\n")}\n条件回退（不自动执行）：\n#{change.rollback.join("\n")}"
         token = "APPLY #{host} #{hash[0, 12]} #{options[:item]}"
-        @out.print "确认业务策略及维护窗口后输入 #{token}；其他输入取消："
-        @out.flush
-        return @out.puts("已取消，未连接设备。") || 1 unless @input.gets&.strip == token
+        confirmed = terminal.confirm(token: token, prompt: "确认业务策略及维护窗口后输入 #{token}；其他输入取消：")
+        return @out.puts("已取消，未连接设备。") || 1 unless confirmed
         settings = credentials(options)
         @store = Report.new(options[:directory])
         @execution = CtxRunner::Execution.new(plan: plan, change: change, journal: @store, plan_sha256: hash, item: options[:item])

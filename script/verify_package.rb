@@ -10,6 +10,9 @@ artifact = File.expand_path(ARGV.fetch(0))
 connector_artifact = ARGV[1] && File.expand_path(ARGV[1])
 expect_artifact = ARGV[2] && File.expand_path(ARGV[2])
 runner_artifact = ARGV[3] && File.expand_path(ARGV[3])
+cli_artifact = ARGV[4] && File.expand_path(ARGV[4])
+cli_spec = cli_artifact && Gem::Package.new(cli_artifact).spec
+abort "Unexpected CLI candidate" if cli_spec && cli_spec.name != "ctx_cli"
 runner_spec = runner_artifact && Gem::Package.new(runner_artifact).spec
 abort "Unexpected runner candidate" if runner_spec && runner_spec.name != "ctx_runner"
 spec = Gem::Package.new(artifact).spec
@@ -27,13 +30,21 @@ if connector_artifact
     dependency = pending.shift
     next if seen.include?(dependency.name)
     seen << dependency.name
-    selected = if dependency.name == "expect-pty" && expect_artifact
+    selected = if dependency.name == "ctx_cli" && cli_spec
+      cli_spec
+    elsif dependency.name == "expect-pty" && expect_artifact
       Gem::Package.new(expect_artifact).spec
     else
       Gem::Specification.find_all_by_name(dependency.name, dependency.requirement).max_by(&:version)
     end
     abort "Missing local dependency: #{dependency.name}" unless selected && dependency.matches_spec?(selected)
-    cache = dependency.name == "expect-pty" && expect_artifact ? expect_artifact : selected.cache_file
+    cache = if dependency.name == "ctx_cli" && cli_artifact
+      cli_artifact
+    elsif dependency.name == "expect-pty" && expect_artifact
+      expect_artifact
+    else
+      selected.cache_file
+    end
     if File.file?(cache)
       local_dependencies << cache
     elsif !selected.default_gem?
@@ -48,8 +59,18 @@ Dir.mktmpdir("gem-install-") do |home|
   env.merge!("GEM_HOME" => home, "GEM_PATH" => home, "RUBYOPT" => nil, "RUBYLIB" => nil, "HOME" => File.join(home, "user"), "XDG_CONFIG_HOME" => File.join(home, "config"))
   local_dependencies.each { |path| FileUtils.cp(path, home) }
   ruby = RbConfig.ruby
+  system(env, ruby, "-S", "gem", "install", cli_artifact, "--no-document", exception: true) if cli_artifact
   system(env, ruby, "-S", "gem", "install", runner_artifact, "--no-document", exception: true) if runner_artifact
   system(env, ruby, "-S", "gem", "install", artifact, "--no-document", exception: true)
+  if cli_artifact
+    installed = File.join(home, "gems", cli_spec.full_name)
+    Dir.mktmpdir("cli-candidate-") do |source|
+      Gem::Package.new(cli_artifact).extract_files(source)
+      cli_spec.files.each do |path|
+        abort "CLI candidate byte mismatch: #{path}" unless File.binread(File.join(source, path)) == File.binread(File.join(installed, path))
+      end
+    end
+  end
   activation = runner_spec ? "gem #{runner_spec.name.inspect}, #{"= #{runner_spec.version}".inspect}" : ""
   check = <<~RUBY
     #{activation}
@@ -99,7 +120,7 @@ Dir.mktmpdir("gem-install-") do |home|
     expect_package = #{expect_artifact.inspect}
     system(RbConfig.ruby, "-S", "gem", "install", expect_package, "--local", "--no-document", exception: true) if expect_package
     connector_package = #{connector_artifact.inspect}
-    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.17.0" ]
+    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.17.1" ]
     system(RbConfig.ruby, "-S", "gem", "install", *installation, "--no-document", exception: true)
     system(command, "collect", "--help-all", exception: true)
     system(command, "collect", "--init", "--non-interactive", exception: true)

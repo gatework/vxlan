@@ -14,6 +14,11 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.4.1 (2026-10-22)
+
+- Delegate command dispatch, common options, initialization, terminal interaction, offline IO and collection entrypoint orchestration to ctx_cli 0.1.0.
+- Keep domain policies, device capabilities and ctx_runner completion semantics in their existing layers.
+
 - Delegate batch completion and cancellation/failure precedence to CtxRunner::Batch, keeping domain review and CLI presentation explicit.
 
 ## 0.3.1 (2026-10-21)
