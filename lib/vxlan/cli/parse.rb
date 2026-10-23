@@ -20,18 +20,18 @@ module Vxlan
 
       # 参数错误与部分证据分开返回；默认只显示元数据，JSON 显式导出事实。
       def run(argv)
-        command = CtxCli::Command.new(banner: "用法：#{@command} [选项]（离线文件或 stdin）", defaults: { dimension: :configuration, complete: false }, out: @out) do |p, options|
-          p.on("--file FILE", "读取文件，默认 stdin") { |v| options[:file] = v }
-          p.on("--dimension NAME", "configuration 或运行维度") { |v| options[:dimension] = v.to_sym }
-          p.on("--model NAME", "设备型号") { |v| options[:model] = v }
-          p.on("--complete", "声明输入已完整采集，仍保留解析缺失诊断") { options[:complete] = true }
-          p.on("--json", "输出事实 JSON，可能包含配置敏感信息") { options[:json] = true }
+        command = CtxCli::Command.new(banner: "Usage: #{@command} [options] (offline file or stdin)", defaults: { dimension: :configuration, complete: false }, out: @out) do |p, options|
+          p.on("--file FILE", "Read a file; defaults to stdin") { |v| options[:file] = v }
+          p.on("--dimension NAME", "configuration or a runtime dimension") { |v| options[:dimension] = v.to_sym }
+          p.on("--model NAME", "Device model") { |v| options[:model] = v }
+          p.on("--complete", "Declare input fully collected; missing parse evidence is still reported") { options[:complete] = true }
+          p.on("--json", "Output facts as JSON; may contain sensitive configuration") { options[:json] = true }
           CtxCli::Options.information(p, options)
-          p.separator "维度：#{Vxlan::Collector::COMMANDS.keys.join(', ')}"
+          p.separator "Dimensions: #{Vxlan::Collector::COMMANDS.keys.join(', ')}"
         end
         options = command.parse(argv)
         return 0 if command.informational?(examples: "#{@command} --file running.cfg --complete\ncat nve.txt | #{@command} --dimension nve_peers --complete --json")
-        raise ArgumentError, "未知维度" unless Vxlan::Collector::COMMANDS.key?(options[:dimension])
+        raise ArgumentError, "Unknown dimension" unless Vxlan::Collector::COMMANDS.key?(options[:dimension])
 
         body = CtxCli::Input.read(path: options[:file], input: @input)
         observation = if options[:dimension] == :configuration
@@ -42,13 +42,13 @@ module Vxlan
         if options[:json]
           @output.json(observation.to_h)
         else
-          @out.puts "维度：#{observation.name}；证据：#{observation.status}；记录：#{observation.records.size}"
-          @out.puts "诊断：#{observation.issues.map { |issue| issue[:code] }.uniq.join(', ')}" unless observation.issues.empty?
-          @out.puts "证据完整性不代表 Fabric 健康。"
+          @out.puts "Dimensions: #{observation.name}; evidence: #{observation.status}; records: #{observation.records.size}"
+          @out.puts "Diagnostics: #{observation.issues.map { |issue| issue[:code] }.uniq.join(', ')}" unless observation.issues.empty?
+          @out.puts "Complete evidence does not establish Fabric health."
         end
         observation.complete? ? 0 : 1
       rescue OptionParser::ParseError, ArgumentError, SystemCallError, IOError => error
-        @output.diagnostic("离线解析参数或文件错误；使用 --help 查看参数", exception: error)
+        @output.diagnostic("Offline parsing argument or file error; use --help for options", exception: error)
         2
       end
     end

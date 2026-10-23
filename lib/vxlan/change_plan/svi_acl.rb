@@ -12,14 +12,14 @@ module Vxlan
       def validate_parameters!
         super
         name, direction = @change.values_at("acl", "direction")
-        raise ArgumentError, "ACL 参数无效" unless name.is_a?(String) && name.match?(/\A[A-Za-z0-9_.-]{1,63}\z/) && %w[in out].include?(direction)
-        raise ArgumentError, "ACL 创建状态无效" unless [ true, false ].include?(@change["create_acl"])
-        raise ArgumentError, "不能覆盖既有绑定" unless [ nil, name ].include?(@change["previous_binding"])
+        raise ArgumentError, "Invalid ACL parameters" unless name.is_a?(String) && name.match?(/\A[A-Za-z0-9_.-]{1,63}\z/) && %w[in out].include?(direction)
+        raise ArgumentError, "Invalid ACL creation state" unless [ true, false ].include?(@change["create_acl"])
+        raise ArgumentError, "Cannot overwrite an existing binding" unless [ nil, name ].include?(@change["previous_binding"])
         groups = @change.fetch("address_groups", {})
-        raise ArgumentError, "ACL 依赖未验证" unless groups.is_a?(Hash)
+        raise ArgumentError, "ACL dependencies are unverified" unless groups.is_a?(Hash)
         @policy = AclPolicy.resolve({ "address_groups" => groups }, @change["entries"])
-        raise ArgumentError, "ACL 规则或依赖未验证" unless @policy && @policy.address_groups == groups
-        raise ArgumentError, "无有效 ACL 规则" if @policy.rules.empty?
+        raise ArgumentError, "ACL rules or dependencies are unverified" unless @policy && @policy.address_groups == groups
+        raise ArgumentError, "No valid ACL rules" if @policy.rules.empty?
         @rule_commands = rule_commands
       end
 
@@ -29,7 +29,7 @@ module Vxlan
           next if entry["action"] == "remark"
           action, expression = entry.values_at("action", "expression")
           unless %w[permit deny].include?(action) && expression.is_a?(String) && expression.match?(/\A(?:ip|tcp|udp|icmp|igmp|gre|esp|ah|ospf) [A-Za-z0-9_.:\/ -]+\z/)
-            raise ArgumentError, "ACL 规则语法未验证"
+            raise ArgumentError, "ACL rule syntax is unverified"
           end
           "  #{entry['sequence']} #{action} #{expression}"
         end

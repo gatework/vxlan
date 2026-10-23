@@ -59,7 +59,7 @@ The gem installs `vxlan`; its implementation lives in `lib/vxlan/cli/`. The scri
 ```sh
 gem install vxlan
 # Optional dependencies for live collection and .env files:
-gem install net-connector -v '~> 0.17.1'
+gem install net-connector -v '~> 0.18.0'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only

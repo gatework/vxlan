@@ -18,12 +18,12 @@ module Vxlan
 
       # 返回零只代表建议生成完成，不代表问题已修复或候选配置已获批准。
       def run(argv)
-        command = CtxCli::Command.new(banner: "用法：vxlan review --batch DIR [--output DIR]（离线生成建议，不执行配置）", out: @out) do |p, options|
-          p.on("--fabric-policy FILE", "显式 Fabric/Leaf/Border/Spine 清单 YAML") { |value| options[:fabric_policy] = value }
-          p.on("--batch DIR", "已采集批次，含 evidence/*.json") { |value| options[:batch] = value }
-          p.on("--[no-]scripts", "可选导出配置建议，默认仅诊断") { |value| options[:scripts] = value }
-          p.on("--output DIR", "私有输出根目录，默认批次内 reviews") { |value| options[:output] = value }
-          p.on("-h", "--help", "查看帮助") { options[:help] = true }
+        command = CtxCli::Command.new(banner: "Usage: vxlan review --batch DIR [--output DIR] (generate recommendations offline without executing configuration)", out: @out) do |p, options|
+          p.on("--fabric-policy FILE", "Explicit Fabric/Leaf/Border/Spine inventory YAML") { |value| options[:fabric_policy] = value }
+          p.on("--batch DIR", "Collected batch containing evidence/*.json") { |value| options[:batch] = value }
+          p.on("--[no-]scripts", "Optionally export configuration suggestions; diagnostics only by default") { |value| options[:scripts] = value }
+          p.on("--output DIR", "Private output root; defaults to reviews inside the batch") { |value| options[:output] = value }
+          p.on("-h", "--help", "Show help") { options[:help] = true }
         end
         CtxCli::Review.new(command: command, directory: "evidence", adapter: self, out: @out, error: @error).run(argv)
       end
@@ -36,7 +36,7 @@ module Vxlan
         end
         hosts = documents.map { |entry| entry[2]["device"]["host"] }
         names = documents.map { |entry| CLI::Report.device_basename(entry[2].fetch("device")) }
-        raise ArgumentError, "设备身份或输出名称重复" unless hosts.uniq == hosts && names.uniq == names
+        raise ArgumentError, "Duplicate device identity or output name" unless hosts.uniq == hosts && names.uniq == names
         policy = options[:fabric_policy] && YAML.safe_load(CtxCli::Input.read(path: options[:fabric_policy]), aliases: false)
         Vxlan::Fabric::Scope.new(policy) if policy
         policy
@@ -46,7 +46,7 @@ module Vxlan
       def publish(documents, options, batch:, context:)
         report = CLI::Report.new(options[:output] || File.join(batch, "reviews"), scripts: options[:scripts] == true)
         report.build_review(documents, policy: context)
-        "建议已生成：#{report.directory}/summary.txt；#{documents.size} 台；未执行设备变更。"
+        "Recommendations generated: #{report.directory}/summary.txt; #{documents.size} devices; no device changes executed."
       end
 
       private
@@ -61,31 +61,31 @@ module Vxlan
         return unless dimension == "configuration"
         CtxRunner::Evidence.array(record.fetch("review_findings", []))
         nve = record.fetch("nve", {})
-        raise ArgumentError, "NVE/VLAN 结构错误" unless nve.is_a?(Hash) && record.fetch("vlan_vnis", {}).is_a?(Hash)
+        raise ArgumentError, "Invalid NVE/VLAN structure" unless nve.is_a?(Hash) && record.fetch("vlan_vnis", {}).is_a?(Hash)
         CtxRunner::Evidence.map(nve.fetch("members", {}))
         CtxRunner::Evidence.map(record.fetch("vrfs", {}))
         CtxRunner::Evidence.map(record.fetch("evpn", {})).each_value { |entry| CtxRunner::Evidence.array(entry.fetch("route_targets", [])) }
         CtxRunner::Evidence.map(record.fetch("interfaces", {})).each_value do |interface|
           addresses, bindings = interface.fetch("addresses", []), interface.fetch("acl_bindings", {})
           unless addresses.is_a?(Array) && addresses.all? { |address| address.is_a?(String) && address.include?("/") } && bindings.is_a?(Hash) && bindings.all? { |direction, name| %w[in out].include?(direction) && name.is_a?(String) }
-            raise ArgumentError, "接口结构错误"
+            raise ArgumentError, "Invalid interface structure"
           end
           addresses.each { |address| IPAddr.new(address) }
         end
         acls = record.fetch("acls", {})
-        raise ArgumentError, "ACL 结构错误" unless acls.is_a?(Hash)
+        raise ArgumentError, "Invalid ACL structure" unless acls.is_a?(Hash)
         acls.each_value do |entries|
           CtxRunner::Evidence.array(entries).each do |entry|
             unless entry["sequence"].is_a?(Integer) && %w[permit deny remark].include?(entry["action"]) && entry["expression"].is_a?(String)
-              raise ArgumentError, "ACL 规则结构错误"
+              raise ArgumentError, "Invalid ACL rule structure"
             end
           end
         end
         groups = record.fetch("address_groups", {})
-        raise ArgumentError, "地址组结构错误" unless groups.is_a?(Hash)
+        raise ArgumentError, "Invalid address group structure" unless groups.is_a?(Hash)
         groups.each_value do |members|
           unless members.is_a?(Array) && members.all? { |member| member.is_a?(String) && member.include?("/") && IPAddr.new(member).ipv4? }
-            raise ArgumentError, "地址组成员错误"
+            raise ArgumentError, "Invalid address group members"
           end
         end
       end

@@ -249,7 +249,29 @@ RSpec.describe Vxlan::CLI::Report do
     report = described_class.new(@root)
     missing = { "host" => "192.0.2.11", "name" => "SPARE" }
     summary = report.finish([ result ], requested: [ result.fetch(:device), missing ])
-    expect(summary[:status]).to eq(:incomplete)
-    expect(summary[:pending]).to eq([ missing ])
+    expect(summary.fetch("status")).to eq("incomplete")
+    expect(summary.fetch("pending")).to eq([ missing ])
+  end
+
+  it "renders the fixed document after the caller changes the original results" do
+    report = described_class.new(@root)
+    publisher = report.instance_variable_get(:@report)
+    original_result = result
+    results = [ original_result ]
+    allow(publisher).to receive(:finish).and_wrap_original do |original, *args, **options, &render|
+      original.call(*args, **options) do |document|
+        original_result[:device]["host"] = "changed-host"
+        original_result[:status] = :failed
+        results.clear
+        render.call(document)
+      end
+    end
+    summary = report.finish(results)
+    text = File.read(File.join(report.directory, "summary.txt"))
+    expect(text).to include("192.0.2.10", "complete")
+    expect(text).not_to include("changed-host")
+    expect(summary).to eq(JSON.parse(File.read(File.join(report.directory, "summary.json"))))
+    expect(summary.fetch("completed")).to eq(1)
+    expect(summary.fetch("devices").first).to include("status" => "complete")
   end
 end

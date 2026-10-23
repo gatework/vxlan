@@ -59,7 +59,7 @@ observation.records.each { |record| p record }
 ```sh
 gem install vxlan
 # 联网采集与读取 .env 所需的可选依赖：
-gem install net-connector -v '~> 0.16.0'
+gem install net-connector -v '~> 0.18.0'
 vxlan --help
 vxlan collect --init --non-interactive
 vxlan collect --inventory-only

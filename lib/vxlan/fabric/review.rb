@@ -18,7 +18,7 @@ module Vxlan
       # 比较范围由业务策略统一验证，审查器只负责组织规则与建议。
       def initialize(documents, policy)
         @documents = documents.to_h { |document| [ document.fetch("device").fetch("host"), document ] }
-        raise ArgumentError, "重复设备身份" unless @documents.size == documents.size
+        raise ArgumentError, "Duplicate device identity" unless @documents.size == documents.size
         @scope = Scope.new(policy)
       end
 
@@ -26,12 +26,12 @@ module Vxlan
       def call
         @findings, @items, @coverage, @subnet_indexes = [], Hash.new { |hash, host| hash[host] = [] }, [], {}
         inventory = @scope.coverage(@documents.keys)
-        finding("未归属", nil, "fabric_scope_unassigned", "已采集设备未纳入 Fabric 策略，跨设备审查未覆盖", inventory[:unassigned]) if inventory[:unassigned].any?
+        finding("unassigned", nil, "fabric_scope_unassigned", "Collected devices are outside the Fabric policy and are not covered by cross-device review", inventory[:unassigned]) if inventory[:unassigned].any?
         @scope.groups.each do |fabric, group|
           configs = group.values.flatten.to_h { |host| [ host, configuration(host) ] }
           unknown = configs.select { |_host, config| config.nil? }.keys
           unless unknown.empty?
-            finding(fabric, nil, "fabric_evidence_incomplete", "成员配置证据不完整，停止该 Fabric 的变更推导", unknown)
+            finding(fabric, nil, "fabric_evidence_incomplete", "Member configuration evidence is incomplete; change inference stopped for this Fabric", unknown)
             next
           end
           %w[leaves borders].each do |role|
@@ -63,11 +63,11 @@ module Vxlan
           @coverage << { fabric: fabric, role: @role, vni: vni, deployed: rows.map { |row| row[:host] }.uniq, not_deployed: configs.keys - rows.map { |row| row[:host] }, incomplete: rows.select { |row| row[:missing].any? }.map { |row| row[:host] }.uniq }
           incomplete = rows.select { |row| row[:missing].any? }
           if incomplete.any?
-            finding(fabric, vni, "fabric_service_incomplete", "业务已开始部署，但 VLAN/NVE/EVPN 关联不完整", observations(incomplete) { |row| { missing: row[:missing] } })
+            finding(fabric, vni, "fabric_service_incomplete", "Service deployment has started, but VLAN/NVE/EVPN associations are incomplete", observations(incomplete) { |row| { missing: row[:missing] } })
             review_missing_mappings(fabric, vni, rows, all_configs)
           end
           if rows.map { |row| row[:host] }.uniq.size != rows.size
-            finding(fabric, vni, "fabric_vlan_mapping_ambiguous", "同一 Leaf 将多个 VLAN 映射到相同 VNI", rows.map { |row| row.slice(:host, :vlan) })
+            finding(fabric, vni, "fabric_vlan_mapping_ambiguous", "One Leaf maps multiple VLANs to the same VNI", rows.map { |row| row.slice(:host, :vlan) })
             next
           end
           next unless rows.size >= 2
@@ -76,15 +76,15 @@ module Vxlan
           # 缺映射行没有可定位 SVI，不能再扩散为网关、MTU 等一串伪差异。
           rows = rows.select { |row| row[:vlan] }
           next unless rows.size >= 2
-          compare(fabric, vni, "fabric_vlan_mapping", "相同 VNI 的本地 VLAN 编号不一致", rows) { |row| row[:vlan] }
+          compare(fabric, vni, "fabric_vlan_mapping", "Local VLAN IDs differ for the same VNI", rows) { |row| row[:vlan] }
           # L2 业务没有网关可以是正常设计，但仍须检查承载与控制平面。
           next unless rows.any? { |row| row[:svi] && (row[:svi]["anycast"] || row[:svi].fetch("addresses", []).any?) }
           review_gateway(fabric, vni, rows, all_configs, service_blocked: service_blocked)
           %w[in out].each { |direction| review_acl(fabric, vni, rows, direction, policies: policies, service_blocked: service_blocked) }
           %w[vrf anycast mtu shutdown].each do |field|
-            compare(fabric, vni, "fabric_#{field}", "业务 SVI 的 #{field} 不一致", rows) { |row| row[:svi]&.fetch(field, nil) }
+            compare(fabric, vni, "fabric_#{field}", "Service SVI #{field} differs", rows) { |row| row[:svi]&.fetch(field, nil) }
           end
-          compare(fabric, vni, "fabric_anycast_mac", "Anycast 网关 MAC 不一致", rows) { |row| row[:config]["anycast_mac"] }
+          compare(fabric, vni, "fabric_anycast_mac", "Anycast gateway MACs differ", rows) { |row| row[:config]["anycast_mac"] }
         end
         review_acl_catalog(fabric, configs, policies)
         review_address_groups(fabric, configs)
@@ -94,27 +94,27 @@ module Vxlan
       def review_missing_mappings(fabric, vni, rows, configs)
         rows.select { |row| row[:missing] == [ "VLAN" ] }.each do |row|
           evidence = observations(rows) { |peer| { missing: peer[:missing], gateway: peer[:svi]&.fetch("addresses", []), vrf: peer[:svi]&.dig("vrf") } }
-          item = recommendation(fabric, vni, "fabric_vlan_mapping_missing", "补齐已有业务的 VLAN/VNI 关联", evidence)
+          item = recommendation(fabric, vni, "fabric_vlan_mapping_missing", "Complete the VLAN/VNI association for an existing service", evidence)
           plan = Service::Mapping.infer(vni, row, rows)
           change = plan&.to_h
           conflicts = change ? gateway_conflicts(configs, change, except: [ row[:host], "Vlan#{change['vlan']}" ]) : []
           if conflicts.any?
             item[:evidence].concat(conflicts)
-            item[:blockers] << "同 VRF 存在跨 SVI/跨 VNI 网段重叠，不能通过新增映射扩大冲突：#{conflicts.map { |entry| "#{entry[:name]} #{entry[:interface]}" }.join('、')}"
+            item[:blockers] << "Subnets overlap across SVIs/VNIs within the same VRF; adding a mapping must not extend the conflict: #{conflicts.map { |entry| "#{entry[:name]} #{entry[:interface]}" }.join(', ')}"
             plan = nil
           end
           if plan
             local_svi = row[:config].fetch("interfaces").fetch("Vlan#{change['vlan']}")
             item[:evidence] = evidence.map do |entry|
-              entry[:host] == row[:host] ? entry.merge(vlan: change["vlan"].to_s, value: { missing: [ "VLAN/VNI 映射" ], gateway: local_svi["addresses"], vrf: local_svi["vrf"] }) : entry
+              entry[:host] == row[:host] ? entry.merge(vlan: change["vlan"].to_s, value: { missing: [ "VLAN/VNI mapping" ], gateway: local_svi["addresses"], vrf: local_svi["vrf"] }) : entry
             end
-            item[:impact] = "将已有 VLAN 接入既有 VXLAN 业务，可能立即扩展广播域；不创建 VLAN，不更改网关或 ACL。"
-            item[:prerequisites] << "本机未映射 VLAN 的网关、VRF、Anycast 身份及 ACL 与完整对端一致，NVE/EVPN 也已匹配；确认该业务确应在本机接入。"
-            item[:expected] = "本机 VLAN/VNI 关联完整、VNI 状态符合预期，既有网关及 ACL 保持不变；接入业务验收通过。"
+            item[:impact] = "Attaching an existing VLAN to an existing VXLAN service may immediately extend the broadcast domain; no VLAN is created and gateways and ACLs are unchanged."
+            item[:prerequisites] << "The unmapped local VLAN's gateway, VRF, Anycast identity and ACL match a complete peer, and NVE/EVPN already match; confirm that this service should be attached locally."
+            item[:expected] = "Local VLAN/VNI association is complete, VNI state meets expectations, existing gateway and ACL remain unchanged, and service acceptance passes."
             item[:resolves] = [ { code: "nve_l2_without_vlan", vni: vni } ]
             propose(item, plan, service_blocked: false)
           else
-            item[:blockers] << "没有唯一且完整的业务对应关系；需核对本机未映射 VLAN、网关、VRF、ACL 与对端配置，禁止按 VNI 数值猜测 VLAN。"
+            item[:blockers] << "No unique and complete service correspondence exists; compare the local unmapped VLAN, gateway, VRF and ACL with peer configuration. Do not infer VLAN from VNI numbers."
           end
           @items[row[:host]] << item
         end
@@ -123,13 +123,13 @@ module Vxlan
       # 一致性约束先于增量生成；承载/路由声明冲突时停止叠加网关和 ACL 变更。
       def review_transport(fabric, vni, rows)
         before = @findings.size
-        compare(fabric, vni, "fabric_replication", "NVE 复制方式或组播组声明不一致", rows) { |row| Service::Catalog.nve_member(row[:config], row[:nve])&.slice("replication", "multicast_group") }
-        compare(fabric, vni, "fabric_arp_suppression", "ARP 抑制的显式配置不一致", rows) { |row| row[:nve]&.fetch("suppress_arp", nil) }
-        compare(fabric, vni, "fabric_route_targets", "EVPN 导入/导出 RT 声明不一致，需核对路由互通与隔离", rows) do |row|
+        compare(fabric, vni, "fabric_replication", "NVE replication modes or multicast group declarations differ", rows) { |row| Service::Catalog.nve_member(row[:config], row[:nve])&.slice("replication", "multicast_group") }
+        compare(fabric, vni, "fabric_arp_suppression", "Explicit ARP suppression settings differ", rows) { |row| row[:nve]&.fetch("suppress_arp", nil) }
+        compare(fabric, vni, "fabric_route_targets", "EVPN import/export RT declarations differ; verify routing reachability and isolation", rows) do |row|
           row[:evpn] && Service::Catalog.route_targets(row[:evpn]["route_targets"], asn: row[:config].dig("bgp", "asn"), vni: vni)
         end
         tenant_rows = rows.select { |row| row[:svi] && row[:svi]["vrf"] }
-        compare(fabric, vni, "fabric_tenant_routing", "共同业务的租户 VNI 或路由导入/导出声明不一致", tenant_rows) do |row|
+        compare(fabric, vni, "fabric_tenant_routing", "Tenant VNIs or route import/export declarations differ for a shared service", tenant_rows) do |row|
           Service::Catalog.tenant(row[:config], row[:svi]["vrf"])
         end if tenant_rows.size >= 2
         @findings.size > before
@@ -140,9 +140,9 @@ module Vxlan
         services = Service::Catalog.new(host => config).services
         return if services.empty?
         evidence = [ { host: host, value: { role: "spines", l2_vnis: services.keys.sort } } ]
-        finding(fabric, nil, "fabric_role_conflict", "声明为 Spine，但存在 L2 业务承载配置", evidence)
-        item = recommendation(fabric, nil, "fabric_role_conflict", "核对 Spine 是否应承担业务 VTEP 职责", evidence)
-        item[:blockers] << "先确认角色或迁移残留；不能因为出现 NVE 就自动把 Spine 当作 Leaf，不能自动补业务配置或删除 NVE。"
+        finding(fabric, nil, "fabric_role_conflict", "Declared as Spine but contains L2 service-bearing configuration", evidence)
+        item = recommendation(fabric, nil, "fabric_role_conflict", "Verify whether the Spine should act as a service VTEP", evidence)
+        item[:blockers] << "Confirm the role or migration remnants first; NVE presence does not automatically make a Spine a Leaf. Do not automatically add service configuration or delete NVE."
         @items[host] << item
       end
 
@@ -150,11 +150,11 @@ module Vxlan
       def review_gateway(fabric, vni, rows, configs, service_blocked:)
         values = rows.map { |row| row[:svi]&.fetch("addresses", [])&.sort }
         return if values.uniq.one?
-        finding(fabric, vni, "fabric_gateway", "同业务网关地址不一致", observations(rows) { |row| row[:svi]&.fetch("addresses", []) })
+        finding(fabric, vni, "fabric_gateway", "Gateway addresses differ for the same service", observations(rows) { |row| row[:svi]&.fetch("addresses", []) })
         expected = values.compact.reject(&:empty?).uniq
         rows.each do |row|
           next if expected.one? && row[:svi]&.fetch("addresses", [])&.sort == expected.first
-          item = recommendation(fabric, vni, "fabric_gateway", "网关地址需要一致", observations(rows) { |entry| entry[:svi]&.fetch("addresses", []) })
+          item = recommendation(fabric, vni, "fabric_gateway", "Gateway addresses must be consistent", observations(rows) { |entry| entry[:svi]&.fetch("addresses", []) })
           change = { "kind" => "svi_gateway_add", "vlan" => row[:vlan].to_i, "vni" => vni, "vrf" => row[:svi]&.dig("vrf"), "address" => expected.one? && expected.first.one? ? expected.first.first : nil }
           context = rows.map { |entry| [ entry[:svi]&.dig("vrf"), entry[:svi]&.dig("anycast"), entry[:config]["anycast_mac"] ] }.uniq
           conflicts = change["address"] ? gateway_conflicts(configs, change) : []
@@ -163,8 +163,8 @@ module Vxlan
               (plan = ChangePlan.candidate(change, config: row[:config]))
             propose(item, plan, service_blocked: service_blocked)
           else
-            item[:blockers] << "存在已有地址、跨 SVI/跨 VNI 网段冲突，或 VRF/Anycast 模式/MAC 不一致、缺少唯一网关；需先确认迁移设计，禁止重复添加网关。"
-            item[:blockers] << "Fabric 内冲突接口：#{conflicts.map { |conflict| "#{conflict[:name]} #{conflict[:interface]}" }.join('、')}" if conflicts.any?
+            item[:blockers] << "An existing address, cross-SVI/VNI subnet conflict, inconsistent VRF/Anycast mode/MAC, or lack of a unique gateway prevents this change; confirm the migration design first. Do not add duplicate gateways."
+            item[:blockers] << "Conflicting interfaces in the Fabric: #{conflicts.map { |conflict| "#{conflict[:name]} #{conflict[:interface]}" }.join(', ')}" if conflicts.any?
           end
           @items[row[:host]] << item
         end
@@ -195,11 +195,11 @@ module Vxlan
           { acl: name, defined: !entries.nil?, entries: entries, policy_verified: !policy.nil?, address_groups: policy&.address_groups, digest: policy && CtxRunner::Fingerprint.call(policy.to_h) }
         end
         code = different_binding ? "fabric_acl_binding" : "fabric_acl_content"
-        finding(fabric, vni, code, "#{direction} 方向 ACL 挂载/有序规则不一致", evidence)
+        finding(fabric, vni, code, "#{direction} ACL attachments or ordered rules differ", evidence)
         undefined = evidence.select { |row| row[:value][:acl] && !row[:value][:defined] }
-        finding(fabric, vni, "fabric_acl_undefined", "#{direction} 方向已挂载 ACL，但本机没有对应定义", undefined) if undefined.any?
+        finding(fabric, vni, "fabric_acl_undefined", "#{direction} ACL is attached but its local definition is missing", undefined) if undefined.any?
         unresolved = evidence.select { |row| row[:value][:defined] && !row[:value][:policy_verified] }
-        finding(fabric, vni, "fabric_acl_dependency", "#{direction} 方向 ACL 依赖对象缺失、为空或尚未解析，不能证明策略一致", unresolved) if unresolved.any?
+        finding(fabric, vni, "fabric_acl_dependency", "#{direction} ACL dependencies are missing, empty or unparsed; policy consistency cannot be established", unresolved) if unresolved.any?
         names = bindings.compact.uniq
         sources = rows.select { |row| row[:config].fetch("acls", {})[names.first] }
         originals = sources.map { |row| row[:config]["acls"][names.first] }
@@ -208,21 +208,21 @@ module Vxlan
           current_name = row[:svi]&.dig("acl_bindings", direction)
           current_entries = names.one? && row[:config].fetch("acls", {})[names.first]
           next if names.one? && unique.one? && unique.first && current_name == names.first && policies.dig(row[:host], names.first) == unique.first
-          item = recommendation(fabric, vni, code, "统一 #{direction} 方向访问控制", evidence)
+          item = recommendation(fabric, vni, code, "Align #{direction} access control", evidence)
           change = { "kind" => "svi_acl", "vlan" => row[:vlan].to_i, "vni" => vni, "direction" => direction,
             "acl" => names.first, "entries" => originals.first, "create_acl" => current_entries.nil?, "previous_binding" => current_name }
           change["address_groups"] = unique.first.address_groups if unique.one? && unique.first
           context_matches = rows.map { |entry| entry[:svi]&.dig("vrf") }.uniq.one?
           if names.one? && unique.one? && unique.first && context_matches &&
               (plan = ChangePlan.candidate(change, config: row[:config]))
-            item[:prerequisites] << "依据是本业务已挂载且有序内容一致的 ACL；即使挂载节点较少，也不以无 ACL 的多数节点为删除依据。确认此业务应统一受该 ACL 保护。"
+            item[:prerequisites] << "The basis is an ACL attached to this service with matching ordered contents; even if fewer nodes attach it, a majority without an ACL is not grounds for removal. Confirm that the service should uniformly use this ACL."
             propose(item, plan, service_blocked: service_blocked)
           else
-            item[:blockers] << "ACL 名称、有序规则、地址组成员、VRF 或当前绑定不能证明一致；需选择权威规则及完整依赖，不自动覆盖或撤销访问控制。"
+            item[:blockers] << "ACL names, ordered rules, address group members, VRF or current bindings do not establish consistency; choose authoritative rules and complete dependencies. Do not automatically overwrite or remove access control."
             shared = change["create_acl"] ? AclPolicy.bindings(row[:config], names.first) - [ { "interface" => "Vlan#{row[:vlan]}", "direction" => direction } ] : []
             if shared.any?
-              references = shared.map { |binding| "#{binding['interface']} #{binding['direction']}" }.join("、")
-              item[:blockers] << "创建 #{names.first} 还会激活既有引用：#{references}。需合并所有受影响接口核对策略和回退，禁止作为单个 SVI 的补齐执行。"
+              references = shared.map { |binding| "#{binding['interface']} #{binding['direction']}" }.join(", ")
+              item[:blockers] << "Creating #{names.first} would also activate existing references: #{references}. Review policy and rollback for all affected interfaces together; do not execute this as completion of a single SVI."
             end
           end
           @items[row[:host]] << item
@@ -238,10 +238,10 @@ module Vxlan
             { host: host, entries: entries, semantics: policies.dig(host, name)&.rules || AclPolicy.rules(entries), policy: policies.dig(host, name)&.to_h } if entries
           end
           if rows.map { |row| row[:semantics] }.uniq.size > 1 || rows.map { |row| row[:policy] }.uniq.size > 1
-            finding(fabric, nil, "fabric_acl_content", "同名 ACL #{name} 的有序规则或依赖对象不同（包括尚未挂载的定义）", rows)
+            finding(fabric, nil, "fabric_acl_content", "Same-name ACL #{name} has different ordered rules or dependencies (including unattached definitions)", rows)
           end
           unknown = rows.select { |row| row[:policy].nil? }
-          finding(fabric, nil, "fabric_acl_dependency", "ACL #{name} 的依赖对象未验证，不能证明策略一致（包括尚未挂载的定义）", unknown) if unknown.any?
+          finding(fabric, nil, "fabric_acl_dependency", "ACL #{name} has unverified dependencies; policy consistency cannot be established (including unattached definitions)", unknown) if unknown.any?
         end
       end
 
@@ -255,7 +255,7 @@ module Vxlan
         end
         references.sort.each do |name, rows|
           next unless rows.map { |row| row[:value] }.uniq.size > 1
-          finding(fabric, nil, "fabric_address_group", "ACL 地址组 #{name} 成员不同或缺失；仅比较引用此对象的业务，不自动复制", rows)
+          finding(fabric, nil, "fabric_address_group", "ACL address group #{name} has different or missing members; compare only services referencing this object and do not copy automatically", rows)
         end
       end
 
@@ -283,7 +283,7 @@ module Vxlan
             end
             conflicts << rows if rows.map { |row| row[:vni] }.uniq.size > 1
             conflicts.each do |evidence|
-              finding(fabric, nil, "fabric_subnet_vni_conflict", "VRF #{vrf} 的网段在不同 VNI 上重叠，需核对迁移或隔离设计", evidence)
+              finding(fabric, nil, "fabric_subnet_vni_conflict", "VRF #{vrf} has overlapping subnets across different VNIs; verify the migration or isolation design", evidence)
             end
             active << [ key, rows ]
           end
@@ -308,16 +308,16 @@ module Vxlan
 
       # 与单设备报告共享建议字段，跨设备来源完整保留。
       def recommendation(fabric, vni, code, title, evidence)
-        { code: code, category: "fabric", scope: "#{fabric} / #{@role} / #{vni ? "VNI #{vni}" : '角色核查'}", title: title, status: "blocked", evidence: evidence,
-          prerequisites: [ "仅在本 Fabric、相同已部署业务范围内适用；核对业务访问策略与维护窗口。", "下发前重新读取配置，任何变化均使计划过期；逐设备逐项确认，不批量重放。" ], blockers: [],
+        { code: code, category: "fabric", scope: "#{fabric} / #{@role} / #{vni ? "VNI #{vni}" : 'role review'}", title: title, status: "blocked", evidence: evidence,
+          prerequisites: [ "Applicable only within this Fabric and the same deployed service scope; verify the service access policy and maintenance window.", "Read configuration again before applying; any change makes the plan stale. Confirm each item on each device; do not replay in bulk." ], blockers: [],
           commands: [], rollback: [], verify: [ "show running-config", "show nve vni", "show ip interface brief vrf all" ],
-          impact: "改变网关或 ACL 可能改变可达性及业务隔离；配置回读通过后仍需业务验收。", expected: "共同业务的网关和访问控制一致，允许/拒绝流量均符合设计。", references: [] }
+          impact: "Changing a gateway or ACL may affect reachability and service isolation; service acceptance is still required after configuration readback passes.", expected: "Gateways and access control are consistent for the shared service; permitted and denied traffic match the design.", references: [] }
       end
 
       # 类型化增量才可导出可交互执行的计划，冲突项只有证据和待确认信息。
       def propose(item, plan, service_blocked:)
         if service_blocked
-          item[:blockers] << "共同业务的承载关联或复制/路由声明存在冲突，先解决这些前置问题，再生成网关或 ACL 增量。"
+          item[:blockers] << "Service-bearing associations or replication/routing declarations conflict for a shared service; resolve these prerequisites before generating gateway or ACL changes."
           return
         end
         item.merge!(status: "candidate", change: plan.to_h, commands: plan.commands, rollback: plan.rollback)

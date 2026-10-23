@@ -73,7 +73,7 @@ RSpec.describe Vxlan::CLI::Collect do
     allow(Process).to receive(:getrlimit).with(:NOFILE).and_return([ 150, 150 ])
     factory = ->(*) { raise "connection must not start" }
     expect(run_example(runner(factory: factory, executor: nil))).to eq(2)
-    expect(@error.string).to include("文件描述符额度不足", "未连接设备")
+    expect(@error.string).to include("Insufficient local file descriptor limit", "without connecting to devices")
     expect(Dir).not_to exist(File.join(@directory, "reports"))
   end
 
@@ -155,8 +155,8 @@ RSpec.describe Vxlan::CLI::Collect do
     end
     expect(run_example(runner(factory: factory))).to eq(1)
     expect(@out.string).to be_empty
-    expect(@error.string).to include("清单 2 台；本次 2 台；跳过 0 台；并发 2", "192.0.2.11  未完成", "未完成分类：",
-      "批次结束：成功 1，部分成功 0，失败 1，跳过 0", "文本报告：")
+    expect(@error.string).to include("Inventory 2 devices; selected 2; skipped 0 devices; concurrency 2", "192.0.2.11  Incomplete", "Incomplete categories: ",
+      "Batch finished: succeeded 1, partial 0, failed 1, skipped 0", "Text report: ")
     expect(@error.string).not_to include("已采集 2 台 |", "192.0.2.10  ", "private diagnostic", "hostname LEAF")
   end
 
@@ -165,7 +165,7 @@ RSpec.describe Vxlan::CLI::Collect do
     @error.define_singleton_method(:tty?) { true }
     before = Thread.list
     factory = lambda do |_device, settings|
-      expect(@error.string).to include("登录 1")
+      expect(@error.string).to include("Logging in 1")
       expect(settings.fetch(:on_event)).to respond_to(:call)
       connector = double("connector", platform: :cisco_nxos)
       allow(connector).to receive(:open).and_yield(FixtureSession.new)
@@ -173,7 +173,7 @@ RSpec.describe Vxlan::CLI::Collect do
     end
     expect(run_example(runner(factory: factory), "--json")).to eq(0)
     expect(JSON.parse(@out.string).fetch("counts")).to eq("complete" => 2)
-    expect(@error.string).to include("2/2 100%", "\e[2K", "批次结束：成功 2")
+    expect(@error.string).to include("2/2 100%", "\e[2K", "Batch finished: succeeded 2")
     expect(Thread.list - before).to be_empty
   end
 
@@ -185,7 +185,7 @@ RSpec.describe Vxlan::CLI::Collect do
     expect(@error.string).to be_empty
   end
 
-  [ "配置：", "批次结束：" ].each do |stage|
+  [ "Configuration: ", "Batch finished: " ].each do |stage|
     it "preserves collected results and records a display failure at #{stage}" do
       config
       writer = @error.method(:write)
@@ -228,6 +228,43 @@ RSpec.describe Vxlan::CLI::Collect do
       expect(summary.fetch("output_error")).to include("error_type" => "IOError")
       expect(summary.fetch("devices").first).to include("status" => "complete", "report_saved" => true)
       expect(@out.string).not_to include("private terminal error", "private execution error")
+    end
+  end
+
+  [ [ :throw, false ], [ :throw, true ], [ :interrupt, false ] ].each do |exit_kind, recovery_error|
+    it "withdraws completion without replaying final progress (#{exit_kind}, recovery_error=#{recovery_error})" do
+      config
+      writer = @error.method(:write)
+      progress_attempts = 0
+      @error.define_singleton_method(:write) do |text|
+        if text.include?("Batch finished:")
+          progress_attempts += 1
+          raise Interrupt if exit_kind == :interrupt
+          throw :stop, :abandoned
+        end
+        writer.call(text)
+      end
+      if recovery_error
+        original = File.method(:rename)
+        allow(File).to receive(:rename) do |source, target|
+          raise Errno::ENOSPC if progress_attempts.positive? && target.end_with?("/summary.txt")
+          original.call(source, target)
+        end
+      end
+      calls = 0
+      factory = lambda do |_device, _settings|
+        calls += 1
+        connector = double("connector", platform: :cisco_nxos)
+        allow(connector).to receive(:open).and_yield(FixtureSession.new)
+        connector
+      end
+      value = catch(:stop) { run_example(runner(factory: factory), "--json") }
+      expect(value).to eq(exit_kind == :throw ? :abandoned : 130)
+      saved = JSON.parse(File.read(Dir[File.join(@directory, "reports/*/summary.json")].fetch(0)))
+      expect(saved).to include("status" => "interrupted", "completed" => 2, "counts" => { "complete" => 2 })
+      expect(saved.fetch("devices")).to all(include("status" => "complete", "report_saved" => true))
+      expect(calls).to eq(2)
+      expect(progress_attempts).to eq(1)
     end
   end
 
@@ -522,7 +559,7 @@ RSpec.describe Vxlan::CLI::Collect do
     config(devices: [], netdisco_config: source)
     allow(Net::Connector::Netdisco::Fleet).to receive(:new).and_raise(Net::Connector::Netdisco::Inventory::Error, "private-inventory-error")
     expect(run_example(runner, "--inventory-only")).to eq(2)
-    expect(@error.string).to include("VXLAN 清单或执行失败")
+    expect(@error.string).to include("VXLAN inventory or execution failed")
     expect(@error.string).not_to include("private-inventory-error")
   end
 
@@ -537,7 +574,7 @@ RSpec.describe Vxlan::CLI::Collect do
     expect(run_example(runner(factory: factory))).to eq(2)
     expect(@error.string).to include("Errno::ENOSPC")
     expect(@out.string).to be_empty
-    expect(@error.string).to include("成功 0，部分成功 0，失败 1", "结果 未完成")
+    expect(@error.string).to include("succeeded 0, partial 0, failed 1", "result incomplete")
   end
   it "runs independent devices through the real bounded pool while each session remains sequential" do
     config
@@ -589,7 +626,7 @@ RSpec.describe Vxlan::CLI::Collect do
     executor = ->(*) { raise Interrupt }
     allow_any_instance_of(Vxlan::CLI::Report).to receive(:finish).and_raise(IOError, "private-summary-detail")
     expect(run_example(runner(factory: factory, executor: executor), "--json")).to eq(130)
-    expect(@error.string).to include("取消", "报告")
+    expect(@error.string).to include("cancelled", "report")
     expect(@out.string + @error.string).not_to include("private-summary-detail")
   end
 

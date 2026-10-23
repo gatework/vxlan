@@ -28,7 +28,7 @@ module Vxlan
 
         # 配置和回退集中于每设备一份 cfg；有限类型动作汇总到批次计划，不接受 cfg 直接执行。
         def write_review(document, basename:, source:, source_sha256:, advice: nil)
-          raise ArgumentError, "非法报告名称" unless basename.match?(/\A[A-Za-z0-9_.-]+\z/)
+          raise ArgumentError, "Invalid report name" unless basename.match?(/\A[A-Za-z0-9_.-]+\z/)
           advice = report_advice(advice || Recommendations.new(document).call).merge(source: source, source_sha256: source_sha256)
           advice[:items] = advice[:items].map(&:dup)
           entry = { device: advice[:device], counts: advice[:counts], basename: basename, report: "devices/#{basename}.txt", source: source,
@@ -95,14 +95,14 @@ module Vxlan
 
         # 每项包含作用域、条件、命令及注释化回退，不将多项当成原子变更。
         def script_text(items)
-          lines = [ "! 候选配置，未执行；先审阅同名 devices/*.txt；禁止整批直接粘贴。", "! apply 只读取 plan.json 中明确选择的单项，不执行本 cfg。" ]
+          lines = [ "! Candidate configuration, not executed; review the matching devices/*.txt first. Do not paste the entire batch.", "! apply reads only the explicitly selected item from plan.json; it does not execute this cfg file." ]
           items.each do |item|
-            lines.concat([ "", "! #{item[:scope]} / #{item[:title]}", "! 计划项：#{item[:plan_id] || '仅审阅草稿，不支持交互执行'}" ])
-            lines.concat(item[:prerequisites].map { |condition| "! 条件：#{condition}" })
+            lines.concat([ "", "! #{item[:scope]} / #{item[:title]}", "! Plan item: #{item[:plan_id] || 'Review draft only; interactive execution unsupported'}" ])
+            lines.concat(item[:prerequisites].map { |condition| "! Prerequisite: #{condition}" })
             lines.concat(item[:commands])
-            lines << "! 条件回退（不自动执行）："
+            lines << "! Conditional rollback (not executed automatically): "
             lines.concat(item[:rollback].map { |command| "! #{command}" })
-            lines << "! 核查：#{item[:verify].join(' ; ')}"
+            lines << "! Verification: #{item[:verify].join(' ; ')}"
           end
           lines.join("\n") + "\n"
         end
@@ -110,27 +110,27 @@ module Vxlan
         # 文本按设备、证据、问题、动作顺序组织，完整跨设备证据位于聚合计划。
         def device_text(entry, document)
           advice, device = entry.values_at(:advice, :device)
-          lines = [ "设备：#{device['name']}（#{device['host']}）", "模式：诊断与计划，未执行设备配置", "证据时间：#{advice[:observed_at] || '未知'}", "来源：#{entry[:source]}", "源文件 SHA256：#{entry[:source_sha256]}",
-            "建议：#{entry[:counts]}", "命令文件：#{entry[:script] || '未生成'}", "命令 SHA256：#{entry[:script_sha256] || '无'}", "计划文件：plan.json；交互计划项 #{entry[:plans].size} 个", "" ]
-          lines << "采集状态：#{document['status']}" if document["status"]
+          lines = [ "Device: #{device['name']} (#{device['host']})", "Mode: diagnostics and planning; no device configuration executed", "Evidence time: #{advice[:observed_at] || 'unknown'}", "Source: #{entry[:source]}", "Source file SHA256: #{entry[:source_sha256]}",
+            "Recommendations: #{entry[:counts]}", "Command file: #{entry[:script] || 'not generated'}", "Command SHA256: #{entry[:script_sha256] || 'none'}", "Plan file: plan.json; interactive plan items: #{entry[:plans].size} items", "" ]
+          lines << "Collection status: #{document['status']}" if document["status"]
           configuration_time = document.dig("snapshot", "dimensions", "configuration", "evidence", 0, "observed_at")
-          lines << "配置证据时间：#{configuration_time}" if configuration_time
-          lines << "当前规则未命中；不代表网络健康。" if advice[:items].empty?
+          lines << "Configuration evidence time: #{configuration_time}" if configuration_time
+          lines << "No current rules matched; this does not establish network health." if advice[:items].empty?
           advice[:items].each_with_index do |item, index|
-            lines.concat([ "", "#{index + 1}. #{item[:scope]} — #{item[:title]}", "状态：#{item[:status]}；规则：#{item[:code]}", "影响：#{item[:impact]}" ])
+            lines.concat([ "", "#{index + 1}. #{item[:scope]} — #{item[:title]}", "Status: #{item[:status]}; rule: #{item[:code]}", "Impact: #{item[:impact]}" ])
             evidence = item[:category] == "fabric" ? Array(item[:evidence]).select { |row| row[:host] == device["host"] } : item[:evidence]
-            lines.concat([ "本机依据：", JSON.pretty_generate(evidence) ])
-            lines << "跨设备对比：summary.txt；完整原始对比：plan.json 的 audits / fabric。" if item[:category] == "fabric"
+            lines.concat([ "Local evidence: ", JSON.pretty_generate(evidence) ])
+            lines << "Cross-device comparison: summary.txt; full raw comparison: audits / fabric in plan.json." if item[:category] == "fabric"
             if item[:plan_id]
-              lines << "交互计划项：#{item[:plan_id]}"
-              lines << "在批次目录运行：vxlan apply --plan plan.json --item #{item[:plan_id]}"
+              lines << "Interactive plan item: #{item[:plan_id]}"
+              lines << "Run in the batch directory: vxlan apply --plan plan.json --item #{item[:plan_id]}"
             end
-            { prerequisites: "适用条件", blockers: "待决信息", commands: "候选配置（未执行）", rollback: "条件回退", verify: "只读核查", template: "待补模板（不可执行）" }.each do |key, title|
+            { prerequisites: "Prerequisites", blockers: "Unresolved information", commands: "Candidate configuration (not executed)", rollback: "Conditional rollback", verify: "Read-only verification", template: "Incomplete template (not executable)" }.each do |key, title|
               values = item[key] || []
-              lines.concat([ "#{title}：", *values.map { |value| "  #{value}" } ]) if values.any?
+              lines.concat([ "#{title}: ", *values.map { |value| "  #{value}" } ]) if values.any?
             end
-            lines << "验收：#{item[:expected]}" if item[:expected]
-            lines << "命令参考：#{item[:references].join(' ')}" if item[:references]&.any?
+            lines << "Acceptance: #{item[:expected]}" if item[:expected]
+            lines << "Command reference: #{item[:references].join(' ')}" if item[:references]&.any?
           end
           lines.join("\n") + "\n"
         end
@@ -139,15 +139,15 @@ module Vxlan
         def summary_text(summary)
           entries, counts = summary.values_at(:reports, :counts)
           active = entries.count { |entry| entry[:counts].values.sum.positive? }
-          lines = [ "VXLAN 诊断与配置建议；模式：review；未执行设备变更。", "报告完成状态以 summary.json 为准。", "设备：#{entries.size} 台；有建议 #{active} 台；未命中规则 #{entries.size - active} 台（不代表健康）。",
-            "建议：待决 #{counts['blocked']}，候选 #{counts['candidate']}，排查 #{counts['investigate']}；Fabric 聚合差异 #{summary[:fabric_findings]} 项。",
-            "计划：#{entries.sum { |entry| entry[:plans].size }} 项可交互执行增量；#{entries.count { |entry| entry[:script] }} 份候选脚本。候选数与可执行计划数不同。",
-            "阅读顺序：summary.txt → devices/<设备>.txt → scripts/<设备>.cfg → plan.json 中的指定计划项。",
-            "evidence/ 保存程序使用的采集证据，日常阅读无需打开；devices/ 只包含可读诊断。",
-            "plan.json.sha256 校验聚合计划；events.jsonl 记录本次离线审查，不代表设备会话或下发回执。", "下发必须 --item 选择单项、交互确认、重读配置并核对指纹；无自动批量执行。", "" ]
+          lines = [ "VXLAN diagnostics and configuration recommendations; mode: review; no device changes executed.", "Report completion status is authoritative in summary.json.", "Devices: #{entries.size} devices; with recommendations #{active} devices; no rules matched #{entries.size - active} devices (does not establish health).",
+            "Recommendations: unresolved #{counts['blocked']}, candidates #{counts['candidate']}, investigations #{counts['investigate']}; aggregated Fabric differences #{summary[:fabric_findings]} items.",
+            "Plan: #{entries.sum { |entry| entry[:plans].size }} changes available for interactive execution; #{entries.count { |entry| entry[:script] }} candidate scripts. Candidate counts differ from executable plan counts.",
+            "Read in order: summary.txt -> devices/<device>.txt -> scripts/<device>.cfg -> the selected plan item in plan.json.",
+            "evidence/ stores collection evidence used by the program; routine review does not require opening it. devices/ contains readable diagnostics only.",
+            "plan.json.sha256 verifies the aggregate plan; events.jsonl records this offline review, not device sessions or execution receipts.", "Applying requires selecting one --item, interactive confirmation, configuration readback and fingerprint verification; there is no automatic bulk execution.", "" ]
           entries.sort_by { |entry| [ entry[:counts].values.sum.positive? ? 0 : 1, entry[:device]["name"].to_s ] }.each do |entry|
-            lines.concat([ "#{entry[:device]['host']} #{entry[:device]['name']} 待决=#{entry[:counts].fetch('blocked', 0)} 候选=#{entry[:counts].fetch('candidate', 0)} 排查=#{entry[:counts].fetch('investigate', 0)}",
-              "  设备报告：#{entry[:report]}", "  命令文件：#{entry[:script] || '未生成'}；可执行计划：#{entry[:plans].size} 项" ])
+            lines.concat([ "#{entry[:device]['host']} #{entry[:device]['name']} unresolved=#{entry[:counts].fetch('blocked', 0)} candidates=#{entry[:counts].fetch('candidate', 0)} investigations=#{entry[:counts].fetch('investigate', 0)}",
+              "  Device report: #{entry[:report]}", "  Command file: #{entry[:script] || 'not generated'}; executable plans: #{entry[:plans].size} items" ])
           end
           lines.concat([ "", @fabric_text ]) if @fabric_text
           lines.join("\n") + "\n"

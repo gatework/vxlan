@@ -33,7 +33,7 @@ RSpec.describe "VXLAN host examples" do
     %w[collect parse].each do |script|
       stdout, stderr, status = invoke(script, "--help", env: { "VXLAN_CONFIG" => "/missing/private.yml" })
       expect(status).to be_success, stderr
-      expect(stdout).to include("用法", "--json", "--examples")
+      expect(stdout).to include("Usage:", "--json", "--examples")
     end
   end
 

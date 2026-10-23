@@ -146,10 +146,10 @@ RSpec.describe "VXLAN installed command" do
     Dir.mktmpdir do |directory|
       stdout, stderr, status = command("collect", "--init", "--non-interactive", directory: directory)
       expect(status).to be_success, stderr
-      expect(stdout).to include("本次未读取清单、未连接设备", "再次运行")
+      expect(stdout).to include("inventory was not read and no devices were connected", "run again")
       _stdout, stderr, status = command("collect", "--interactive", "--config", "missing.yml", directory: directory)
       expect(status.exitstatus).to eq(2)
-      expect(stderr).to include("--interactive 需要交互终端")
+      expect(stderr).to include("--interactive requires an interactive terminal")
     end
   end
   it "uses the default config when VXLAN_CONFIG is blank in the process or env file" do

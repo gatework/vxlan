@@ -13,22 +13,22 @@ module Vxlan
       # 在入口验证唯一归属；允许单角色为空，但 Fabric 至少有两个成员。
       def initialize(policy)
         unless policy.is_a?(Hash) && policy.keys == [ "fabrics" ] && policy["fabrics"].is_a?(Hash) && policy["fabrics"].any?
-          raise ArgumentError, "需要 fabrics 策略"
+          raise ArgumentError, "A fabrics policy is required"
         end
         @groups = policy["fabrics"].to_h do |name, group|
           unless name.is_a?(String) && !name.empty? && group.is_a?(Hash) && (group.keys - ROLES).empty? && group.any?
-            raise ArgumentError, "Fabric 需要明确的角色成员清单"
+            raise ArgumentError, "Fabric requires explicit role member lists"
           end
           roles = ROLES.to_h do |role|
             hosts = group.fetch(role, [])
-            raise ArgumentError, "角色成员须为地址列表" unless hosts.is_a?(Array)
-            hosts.each { |host| raise ArgumentError, "成员地址无效" unless host.is_a?(String) && !host.include?("/") && IPAddr.new(host).to_s == host }
+            raise ArgumentError, "Role members must be address lists" unless hosts.is_a?(Array)
+            hosts.each { |host| raise ArgumentError, "Invalid member address" unless host.is_a?(String) && !host.include?("/") && IPAddr.new(host).to_s == host }
             [ role, CtxParser::Immutable.copy(hosts) ]
           end
-          raise ArgumentError, "Fabric 至少需要两个成员" unless roles.values.flatten.size >= 2
+          raise ArgumentError, "Fabric requires at least two members" unless roles.values.flatten.size >= 2
           [ name, roles.freeze ]
         end.freeze
-        raise ArgumentError, "成员不能重复、跨角色或跨 Fabric" unless hosts.uniq == hosts
+        raise ArgumentError, "Members cannot be duplicated or shared across roles or Fabrics" unless hosts.uniq == hosts
       end
 
       # 扁平成员集合用于覆盖核对，不改变角色内的比较范围。

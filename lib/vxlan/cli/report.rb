@@ -50,19 +50,19 @@ module Vxlan
       def finish(results, interrupted: false, requested: [], report_error: nil, execution_error: nil, output_error: nil)
         @report.finish(results, interrupted: interrupted, requested: requested, report_error: report_error,
           execution_error: execution_error, output_error: output_error, review: @review_summary) do |summary|
-          pending = summary.fetch(:pending)
-          text = [ "VXLAN 证据：#{summary.fetch(:status)}；完成 #{results.size} 台", "分类：#{summary.fetch(:counts)}", "证据完整性不代表 Fabric 健康。" ]
-          text << "逐设备诊断：devices/；候选脚本：scripts/；所有候选配置未执行。"
+          pending = summary.fetch("pending")
+          text = [ "VXLAN evidence: #{summary.fetch('status')}; completed #{summary.fetch('completed')} devices", "Categories: #{summary.fetch('counts')}", "Complete evidence does not establish Fabric health." ]
+          text << "Per-device diagnostics: devices/; candidate scripts: scripts/; no candidate configuration was executed."
           text << @review_text if @review_text
-          text << "批次报告状态：参见 summary.json；文本中的证据状态不确认报告发布完成。"
-          text << "报告错误：#{report_error}" if report_error
-          text << "执行错误：#{execution_error}" if execution_error
-          text << "进度输出错误：#{output_error[:error_type]}；设备结果已保留" if output_error
-          results.each do |r|
-            saved = r[:report_saved] == true ? "已保存" : "保存未确认"
-            text << "#{r[:device]['host']}\t#{r[:device]['name']}\t#{r[:status]}\t#{saved}\t#{r[:error]}"
+          text << "Batch report status: see summary.json; evidence status in text does not confirm report publication."
+          text << "Report error: #{summary['report_error']}" if summary["report_error"]
+          text << "Execution error: #{summary['execution_error']}" if summary["execution_error"]
+          text << "Progress output error: #{summary['output_error']['error_type']}; device results retained" if summary["output_error"]
+          summary.fetch("devices").each do |r|
+            saved = r["report_saved"] == true ? "saved" : "persistence unconfirmed"
+            text << "#{r['device']['host']}\t#{r['device']['name']}\t#{r['status']}\t#{saved}\t#{r['error']}"
           end
-          pending.each { |device| text << "#{device['host']}\t#{device['name']}\t未采集" }
+          pending.each { |device| text << "#{device['host']}\t#{device['name']}\tnot collected" }
           text.join("\n") + "\n"
         end
       end

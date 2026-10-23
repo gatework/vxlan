@@ -8,13 +8,13 @@ module Vxlan
   class Recommendations
     REFERENCE = "https://www.cisco.com/c/en/us/td/docs/dcn/nx-os/nexus9000/103x/configuration/vxlan/cisco-nexus-9000-series-nx-os-vxlan-configuration-guide-release-103x/m_configuring_vxlan_bgp_evpn.html"
     TITLES = {
-      "vlan_vni_without_nve" => "VLAN 已映射 VNI，但缺少 NVE 成员",
-      "nve_l2_without_vlan" => "L2 NVE 成员缺少 VLAN 映射",
-      "nve_l2_without_evpn" => "L2 NVE 成员缺少 EVPN 配置",
-      "nve_l3_without_vrf" => "L3 NVE 成员缺少 VRF 关联",
-      "evpn_vni_without_nve" => "EVPN VNI 缺少 NVE 成员",
-      "vni_layer_conflict" => "VNI 的 L2/L3 属性冲突",
-      "l3_vni_without_nve" => "VRF VNI 缺少 NVE 成员"
+      "vlan_vni_without_nve" => "VLAN maps to a VNI but the NVE member is missing",
+      "nve_l2_without_vlan" => "L2 NVE member lacks a VLAN mapping",
+      "nve_l2_without_evpn" => "L2 NVE member lacks EVPN configuration",
+      "nve_l3_without_vrf" => "L3 NVE member lacks a VRF association",
+      "evpn_vni_without_nve" => "EVPN VNI lacks an NVE member",
+      "vni_layer_conflict" => "VNI has conflicting L2/L3 attributes",
+      "l3_vni_without_nve" => "VRF VNI lacks an NVE member"
     }.freeze
 
     # 联合证据可以解决本机未知，但角色冲突优先阻断所有草稿；不改变原始发现。
@@ -58,11 +58,11 @@ module Vxlan
       config.fetch("interfaces", {}).flat_map do |name, interface|
         interface.fetch("acl_bindings", {}).filter_map do |direction, acl|
           next if config.fetch("acls", {}).key?(acl)
-          result = item("acl_reference_undefined", "#{name} / #{direction}", "接口引用 ACL #{acl}，本机缺少定义",
+          result = item("acl_reference_undefined", "#{name} / #{direction}", "Interface references ACL #{acl}, but its local definition is missing",
             evidence: { interface: name, direction: direction, acl: acl, addresses: interface.fetch("addresses", []), vlan_vni: config.fetch("vlan_vnis", {})[name.delete_prefix("Vlan")] },
             verify: [ "show running-config", "show ip interface brief vrf all" ])
-          result[:blockers] << "先确认接口是否承载业务及 ACL 的权威定义；无地址或无 VNI 可能是残留配置，不能直接推断业务中断，也不能按名称复制其他 Fabric 的 ACL。"
-          result[:impact] = "新增 ACL 定义会作用于本机所有同名引用；须核对全部引用及回退范围。"
+          result[:blockers] << "First confirm whether the interface carries a service and identify the authoritative ACL definition; missing addresses or VNIs may be residual configuration. Do not infer a service outage or copy another Fabric's ACL by name."
+          result[:impact] = "Adding an ACL definition affects all local references to that name; verify every reference and the rollback scope."
           result[:references] = []
           result
         end
@@ -73,20 +73,20 @@ module Vxlan
     def item(code, scope, title, evidence:, verify:, category: "configuration")
       { code: code, scope: scope, title: title, category: category, status: "blocked", evidence: evidence,
         prerequisites: [], blockers: [], commands: [], rollback: [], verify: verify,
-        expected: "重新采集并核对该项事实；业务连通性须另行验收。", references: [ REFERENCE ] }
+        expected: "Collect again and verify this fact; service connectivity requires separate acceptance.", references: [ REFERENCE ] }
     end
 
     # 仅在完整配置证实关联缺失时讨论增量补齐，不自动删除疑似闲置配置。
     def configuration_item(config, finding)
       vni = finding["vni"]
-      result = item(finding["code"], "VNI #{vni}", TITLES.fetch(finding["code"], "配置关联需要核查"),
+      result = item(finding["code"], "VNI #{vni}", TITLES.fetch(finding["code"], "Configuration associations require verification"),
         evidence: finding, verify: [ "show running-config", "show nve vni", "show nve peers", "show bgp l2vpn evpn summary" ])
       result[:vni] = vni
-      result[:prerequisites] = [ "确认该 VNI 应在本机承载业务，而非预配置或退网残留。", "核对当前软件版本、设备角色、同 Fabric 对端的 VLAN/VNI、RD/RT 与复制方式。", "重新采集配置并确认与本报告一致；审批维护窗口后逐台操作，出现异常先回读，勿盲目重放。" ]
-      result[:impact] = "补齐可能开始发布路由或扩展二层广播域；须核对隔离边界、对端配置和回退条件。"
-      result[:expected] = "VLAN、NVE 与 EVPN 关联一致；预期承载业务的 VNI 状态 Up，BGP/对端正常，业务验收通过。"
+      result[:prerequisites] = [ "Confirm that this VNI should carry a service locally, rather than being staged configuration or a decommissioning remnant.", "Check the current software version, device role, and same-Fabric peers' VLAN/VNI, RD/RT and replication mode.", "Collect configuration again and verify it matches this report; after maintenance window approval, operate one device at a time. On anomalies, read back first and avoid blind replay." ]
+      result[:impact] = "Completing the configuration may start route advertisement or extend the L2 broadcast domain; verify isolation boundaries, peer configuration and rollback conditions."
+      result[:expected] = "VLAN, NVE and EVPN associations are consistent; VNIs expected to carry services are Up, BGP/peers are healthy, and service acceptance passes."
       unless vni.is_a?(Integer) && vni.between?(1, 16_777_215)
-        result[:blockers] << "VNI 非有效整数，无法生成命令。"
+        result[:blockers] << "VNI is not a valid integer; commands cannot be generated."
         return result
       end
       vlans = config.fetch("vlan_vnis", {}).select { |_vlan, mapped| mapped == vni }.keys
@@ -97,9 +97,9 @@ module Vxlan
       case finding["code"]
       when "nve_l2_without_evpn"
         if l2_context?(config, vni, vlans) && member && member["associate_vrf"] == false && member["replication"] == "bgp" && !evpn && auto_policy?(config)
-          candidate(result, evpn_add(vni), evpn_remove(vni), "本机现有 L2 EVPN 均采用 RD auto、RT import/export auto；候选沿用此模式，仍需确认本 VNI 的业务意图。")
+          candidate(result, evpn_add(vni), evpn_remove(vni), "All existing local L2 EVPN instances use RD auto and RT import/export auto; the candidate follows this pattern, but the service intent of this VNI still requires confirmation.")
         else
-          result[:blockers] << "需要唯一 VLAN 映射、L2 BGP 复制以及一致的 RD/RT 策略；缺失或冲突时不能套用 auto。"
+          result[:blockers] << "A unique VLAN mapping, L2 BGP replication and consistent RD/RT policy are required; missing or conflicting evidence does not permit applying auto."
         end
       when "vlan_vni_without_nve", "evpn_vni_without_nve"
         if l2_context?(config, vni, vlans) && !member && bgp_replication?(nve) && (evpn ? auto_evpn?(evpn) : auto_policy?(config))
@@ -107,15 +107,15 @@ module Vxlan
           rollback = [ "interface #{nve['interface']}", "  no member vni #{vni}", "exit" ]
           commands.concat(evpn_add(vni)) unless evpn
           rollback.concat(evpn_remove(vni)) unless evpn
-          candidate(result, commands, rollback, "本机既有 L2 成员统一使用 BGP 复制、EVPN auto 策略；仅补齐缺失的 NVE/EVPN，不启用额外 ARP 抑制。")
+          candidate(result, commands, rollback, "Existing local L2 members uniformly use BGP replication and EVPN auto policy; complete only missing NVE/EVPN configuration, without enabling additional ARP suppression.")
         else
-          result[:blockers] << "需确认 VNI 的 L2/L3 角色、VLAN、NVE 接口、复制模式和 RD/RT，当前不能唯一确定增量配置。"
+          result[:blockers] << "Confirm the VNI's L2/L3 role, VLAN, NVE interface, replication mode and RD/RT; a unique configuration change cannot currently be determined."
         end
       when "nve_l2_without_vlan"
-        result[:blockers] << "请提供本 VNI 对应 VLAN ID，并核对 access/trunk/SVI；不能由 VNI 尾数或其他设备名称猜测。"
+        result[:blockers] << "Provide the VLAN ID for this VNI and verify access/trunk/SVI configuration; do not infer it from VNI suffixes or other device names."
         result[:template] = [ "vlan <VLAN_ID>", "  vn-segment #{vni}" ]
       else
-        result[:blockers] << "需要明确 VRF/VNI 业务映射和 L2/L3 角色；先核对设计，再补齐或清理残留配置。"
+        result[:blockers] << "An explicit VRF/VNI service mapping and L2/L3 role are required; verify the design before completing or removing residual configuration."
       end
       result
     end
@@ -175,8 +175,8 @@ module Vxlan
           records = observation.fetch("records", [])
           evidence.merge!(configuration_records: records.size, review_status: records.map { |record| record["review_status"] })
         end
-        item("evidence_incomplete", name, "证据不完整，先补采", evidence: evidence,
-          verify: Array(CiscoNxos::Profile::COMMANDS[name.to_sym]), category: "evidence").merge(status: "investigate", expected: "完整回显或明确的零记录证明；空响应不能等同无配置。")
+        item("evidence_incomplete", name, "Evidence incomplete; collect missing evidence first", evidence: evidence,
+          verify: Array(CiscoNxos::Profile::COMMANDS[name.to_sym]), category: "evidence").merge(status: "investigate", expected: "A complete response or explicit zero-record evidence is required; an empty response does not establish absence of configuration.")
       end
     end
 
@@ -185,8 +185,8 @@ module Vxlan
       %w[nve_vnis nve_peers bgp_neighbors].filter_map do |dimension|
         rows = @dimensions.fetch(dimension, {}).fetch("records", []).select { |row| %w[down idle active connect opensent openconfirm].include?(row["state"].to_s.downcase) }
         next if rows.empty?
-        item("#{dimension}_not_up", dimension, "观测到未建立的运行状态", evidence: rows,
-          verify: [ CiscoNxos::Profile::COMMANDS[dimension.to_sym], "show running-config" ], category: "runtime").merge(status: "investigate", prerequisites: [ "先确认业务预期，再检查对端、底层路由、接口和配置；不自动重启邻居或启用接口。" ])
+        item("#{dimension}_not_up", dimension, "Observed runtime state is not established", evidence: rows,
+          verify: [ CiscoNxos::Profile::COMMANDS[dimension.to_sym], "show running-config" ], category: "runtime").merge(status: "investigate", prerequisites: [ "Confirm service expectations first, then check peers, underlay routing, interfaces and configuration; do not automatically restart neighbors or enable interfaces." ])
       end
     end
   end

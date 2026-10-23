@@ -6,6 +6,7 @@ require "optparse"
 require "ctx_cli/options"
 require "ctx_cli/terminal"
 require "ctx_cli/initializer"
+gem "net-connector", "~> 0.18.0"
 require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
@@ -28,7 +29,7 @@ module Vxlan
         @explicit_config, @explicit_env_file = config, env_file
         @overrides, @flags = {}, {}
         @parser = parser
-        @parser.parse!(argv.dup).tap { |rest| raise ArgumentError, "不接受位置参数" unless rest.empty? }
+        @parser.parse!(argv.dup).tap { |rest| raise ArgumentError, "Positional arguments are not accepted" unless rest.empty? }
       end
 
       # 帮助和范例只打印文本，不读取文件或加载可选网络依赖。
@@ -36,12 +37,12 @@ module Vxlan
         if flags[:help] || flags[:help_all]
           @out.puts @parser
           if flags[:help_all]
-            @out.puts "环境默认：VXLAN_CONFIG、VXLAN_FABRIC、VXLAN_PARALLEL（或 NC_PARALLEL）、VXLAN_DIRECTORY。"
-            @out.puts "凭据：NC_DEVICE_USERNAME / NC_DEVICE_PASSWORD，或 NC_CISCO_NXOS_USERNAME / NC_CISCO_NXOS_PASSWORD；可选 NC_ENABLE_PASSWORD。"
-            @out.puts "优先级：CLI > 进程环境 > YAML > .env > 内置默认值。YAML/.env 路径基于来源目录；CLI 路径基于启动目录。默认报告：#{@directory}"
+            @out.puts "Environment defaults: VXLAN_CONFIG, VXLAN_FABRIC, VXLAN_PARALLEL (or NC_PARALLEL), VXLAN_DIRECTORY."
+            @out.puts "Credentials: NC_DEVICE_USERNAME / NC_DEVICE_PASSWORD, or NC_CISCO_NXOS_USERNAME / NC_CISCO_NXOS_PASSWORD; optional NC_ENABLE_PASSWORD."
+            @out.puts "Precedence: CLI > process environment > YAML > .env > built-in defaults. YAML/.env paths are relative to their source directory; CLI paths are relative to the startup directory. Default reports: #{@directory}"
           end
         elsif flags[:examples]
-          @out.puts "常用示例（地址须替换为实际清单地址）：\n  初始化缺失文件后退出：\n    #{@command} --init --non-interactive\n  预览筛选清单：\n    #{@command} --host 192.0.2.10 --plan\n  按名称选择设备：\n    #{@command} --name leaf --exclude-name spare -p 4\n  自动化采集摘要：\n    #{@command} --dimensions configuration,nve_peers --json --no-progress"
+          @out.puts "Common examples (replace addresses with actual inventory addresses):\n  Initialize missing files and exit:\n    #{@command} --init --non-interactive\n  Preview filtered inventory:\n    #{@command} --host 192.0.2.10 --plan\n  Select devices by name:\n    #{@command} --name leaf --exclude-name spare -p 4\n  Automated collection summary:\n    #{@command} --dimensions configuration,nve_peers --json --no-progress"
         else
           return false
         end
@@ -51,7 +52,7 @@ module Vxlan
       # 自动化拒绝强制问答；帮助分支无需检查终端或消费输入。
       def validate_interaction!(input:, error:)
         if flags[:interactive] && !CtxCli::Terminal.tty?(input, error)
-          raise CtxCli::Collection::Error, "--interactive 需要交互终端；自动化请使用 --init --non-interactive"
+          raise CtxCli::Collection::Error, "--interactive requires an interactive terminal; use --init --non-interactive for automation"
         end
       end
 
@@ -66,7 +67,7 @@ module Vxlan
         @environment = @files.environment
         @config, @env_file = @files.config, @files.env_file
       rescue LoadError
-        raise LoadError, "采集配置需要 net-connector >= 0.17.1；读取 .env 还需要 dotenv", cause: nil
+        raise LoadError, "Collection configuration requires net-connector >= 0.18.0; reading .env also requires dotenv", cause: nil
       end
 
       # 公共与专用文件先合并，进程值和 CLI 最后覆盖；数组不追加设备。
@@ -74,7 +75,7 @@ module Vxlan
         @files.load
         @config, @env_file = @files.config, @files.env_file
         data = Net::Connector::Config.merge(@files.data)
-        raise ArgumentError, "YAML 只接受公开配置字段" unless (data.keys - FIELDS).empty?
+        raise ArgumentError, "YAML accepts only public configuration fields" unless (data.keys - FIELDS).empty?
         specific = @files.specific
         if specific["devices"].is_a?(Array) && specific["devices"].any? && (specific.keys & %w[netdisco inventory netdisco_config]).empty?
           data = data.except("netdisco", "inventory")
@@ -92,14 +93,14 @@ module Vxlan
         netdisco_settings if dynamic_inventory?
         @fabric_policy = nil
         if values["fabric_policy"]
-          raise ArgumentError, "fabric_policy 须为路径" unless values["fabric_policy"].is_a?(String)
+          raise ArgumentError, "fabric_policy must be a path" unless values["fabric_policy"].is_a?(String)
           policy = YAML.safe_load(CtxCli::Input.read(path: values["fabric_policy"]), aliases: false)
           Vxlan::Fabric::Scope.new(policy)
           @fabric_policy = CtxParser::Immutable.copy(policy)
         end
         self
       rescue Psych::Exception
-        raise ArgumentError, "YAML 无效或包含不允许的类型", cause: nil
+        raise ArgumentError, "Invalid YAML or disallowed types", cause: nil
       end
 
       # 对外只列来源路径和字段归属，不携带环境文件的值。
@@ -157,9 +158,9 @@ module Vxlan
           Net::Connector::Config.dump(document, name: "vxlan", path: config)
         { config => template, env_file => File.read(File.join(__dir__, "templates/env.example")) }.each do |path, body|
           status = CtxCli::Initializer.new(prefix: ".vxlan-init-").create(path: path, contents: body)
-          @out.puts "#{status == :created ? '已创建' : '已保留'}：#{path}"
+          @out.puts "#{status == :created ? 'created' : 'preserved'}: #{path}"
         end
-        @out.puts "请检查配置及凭据后再次运行；本次未读取清单、未连接设备。"
+        @out.puts "Check configuration and credentials, then run again; inventory was not read and no devices were connected."
       end
 
       # 默认仅在真实终端提供初始化选择；自动化从不消费 stdin。
@@ -169,20 +170,20 @@ module Vxlan
         return false unless @files.missing?
         terminal = CtxCli::Terminal.new(input: input, out: error)
         if terminal.tty? && flags[:interactive] != false
-          answer = terminal.question("配置不存在：#{config}；是否创建配置与环境模板？[y/N] ")
+          answer = terminal.question("Configuration does not exist: #{config}; create configuration and environment templates? [y/N] ")
           if answer&.match?(/\Ay(?:es)?\z/i)
             initialize_files
             return true
           end
         end
-        raise ArgumentError, "配置不存在：#{config}；请执行 --init 后填写设备，或使用 --config 指定配置"
+        raise ArgumentError, "Configuration does not exist: #{config}; run --init and fill in devices, or select configuration with --config"
       end
 
       # 公开配置输出与实际清单复用身份预检，不读取远端清单。
       def normalize_devices(rows)
-        raise ArgumentError, "devices 须为数组" unless rows.is_a?(Array)
+        raise ArgumentError, "devices must be an array" unless rows.is_a?(Array)
         targets = rows.map { |row| normalize_device(row) }
-        raise ArgumentError, "设备清单包含重复管理地址" unless targets.map { |row| row.fetch("host") }.uniq.size == targets.size
+        raise ArgumentError, "Device inventory contains duplicate management addresses" unless targets.map { |row| row.fetch("host") }.uniq.size == targets.size
         targets
       end
 
@@ -211,20 +212,20 @@ module Vxlan
       # 设备身份只接受公开字段，拒绝隐藏在 YAML 中的密码或连接参数。
       def normalize_device(row)
         unless row.is_a?(Hash) && (row.keys - %w[host name model]).empty? && row["host"].is_a?(String) && !row["host"].include?("/")
-          raise ArgumentError, "devices 仅接受 host、name、model，host 须为单个 IP"
+          raise ArgumentError, "devices accepts only host, name and model; host must be a single IP address"
         end
         host = IPAddr.new(row.fetch("host")).to_s
-        %w[name model].each { |key| raise ArgumentError, "设备 #{key} 须为非空字符串" if row.key?(key) && !row[key].nil? && (!row[key].is_a?(String) || row[key].strip.empty?) }
+        %w[name model].each { |key| raise ArgumentError, "Device #{key} must be a nonempty string" if row.key?(key) && !row[key].nil? && (!row[key].is_a?(String) || row[key].strip.empty?) }
         { "host" => host, "name" => row["name"] || host, "model" => row["model"] }.freeze
       rescue IPAddr::Error
-        raise ArgumentError, "设备 host 无效", cause: nil
+        raise ArgumentError, "Invalid device host", cause: nil
       end
 
       # 显式声明短参数与长参数；不提供难以发现的兼容缩写。
       def parser
         OptionParser.new do |p|
-          p.banner = "用法：#{@command} [选项]（只读 VXLAN 采集）"
-          CtxCli::Options.configuration(p, parallel_help: "设备并发 1～500；继承 NC_PARALLEL，未配置时 4") do |key, value|
+          p.banner = "Usage: #{@command} [options] (read-only VXLAN collection)"
+          CtxCli::Options.configuration(p, parallel_help: "Device concurrency 1 to 500; inherits NC_PARALLEL, defaults to 4") do |key, value|
             case key
             when :config then @explicit_config = File.expand_path(value, Dir.pwd)
             when :env_file then @explicit_env_file = File.expand_path(value, Dir.pwd)
@@ -232,9 +233,9 @@ module Vxlan
             when :parallel then @overrides["parallel"] = value
             end
           end
-          p.on("--fabric-policy FILE", "显式 Fabric/Leaf/Border/Spine 清单 YAML") { |v| @overrides["fabric_policy"] = File.expand_path(v) }
-          p.on("--fabric NAME", "采集所属 Fabric 身份") { |v| @overrides["fabric"] = v }
-          p.on("--dimensions LIST", "逗号分隔维度；--help 查看支持项") { |v| @overrides["dimensions"] = list(v) }
+          p.on("--fabric-policy FILE", "Explicit Fabric/Leaf/Border/Spine inventory YAML") { |v| @overrides["fabric_policy"] = File.expand_path(v) }
+          p.on("--fabric NAME", "Fabric identity for this collection") { |v| @overrides["fabric"] = v }
+          p.on("--dimensions LIST", "Comma-separated dimensions; see --help for supported values") { |v| @overrides["dimensions"] = list(v) }
           Net::Connector::Inventory::Filters.add_options(p) do |key, value|
             if value.is_a?(Array)
               (@overrides[key] ||= []).concat(value)
@@ -243,13 +244,13 @@ module Vxlan
             end
           end
           CtxCli::Options.initialization(p, flags)
-          p.on("--plan", "--inventory-only", "预览筛选清单，不连接设备") { flags[:inventory_only] = true }
-          p.on("--show-config", "查看公开有效配置") { flags[:show_config] = true }
+          p.on("--plan", "--inventory-only", "Preview filtered inventory without connecting to devices") { flags[:inventory_only] = true }
+          p.on("--show-config", "Show effective public configuration") { flags[:show_config] = true }
           CtxCli::Options.output(p, flags)
-          p.on("--[no-]scripts", "可选导出配置建议，默认仅诊断") { |value| flags[:scripts] = value }
+          p.on("--[no-]scripts", "Optionally export configuration suggestions; diagnostics only by default") { |value| flags[:scripts] = value }
           CtxCli::Options.information(p, flags)
-          p.separator "维度：#{Vxlan::Collector::COMMANDS.keys.join(', ')}"
-          p.separator "优先级：CLI > 进程环境 > YAML > .env > 内置默认值。退出码：0 完整/预览；1 未完成/无目标；2 参数/持久化错误；130 取消。"
+          p.separator "Dimensions: #{Vxlan::Collector::COMMANDS.keys.join(', ')}"
+          p.separator "Precedence: CLI > process environment > YAML > .env > built-in defaults. Exit codes: 0 complete/preview; 1 incomplete/no targets; 2 argument/persistence error; 130 cancelled."
         end
       end
 
@@ -258,40 +259,40 @@ module Vxlan
 
       # 先验证整批策略，避免在前面设备连接后才发现后面的非法配置。
       def validate!
-        raise ArgumentError, "parallel 须为 1～500" unless values["parallel"].is_a?(Integer) && (1..500).cover?(values["parallel"])
-        %w[fabric directory].each { |key| raise ArgumentError, "#{key} 须为非空字符串" unless values[key].is_a?(String) && !values[key].strip.empty? }
+        raise ArgumentError, "parallel must be 1 to 500" unless values["parallel"].is_a?(Integer) && (1..500).cover?(values["parallel"])
+        %w[fabric directory].each { |key| raise ArgumentError, "#{key} must be a nonempty string" unless values[key].is_a?(String) && !values[key].strip.empty? }
         dimensions = values["dimensions"]
         unless dimensions.is_a?(Array) && dimensions.any? && dimensions.all?(String) && dimensions.uniq == dimensions && (dimensions - Vxlan::Collector::COMMANDS.keys.map(&:to_s)).empty?
-          raise ArgumentError, "dimensions 包含未知、重复或空维度"
+          raise ArgumentError, "dimensions contains unknown, duplicate or empty dimensions"
         end
         values["devices"] = normalize_devices(values["devices"])
         inline = %w[netdisco inventory].any? { |key| values.key?(key) }
         %w[netdisco inventory].each do |key|
-          raise ArgumentError, "#{key} 须为映射" if values.key?(key) && !values[key].is_a?(Hash)
+          raise ArgumentError, "#{key} must be a mapping" if values.key?(key) && !values[key].is_a?(Hash)
         end
         if inline && (!values["devices"].empty? || values["netdisco_config"])
-          raise ArgumentError, "静态 devices、内嵌 Netdisco 和外部 netdisco_config 不能同时声明"
+          raise ArgumentError, "Static devices, inline Netdisco and external netdisco_config are mutually exclusive"
         end
         if values["netdisco_config"]
-          raise ArgumentError, "netdisco_config 须为配置路径，且不能同时声明 devices" unless values["netdisco_config"].is_a?(String) && !values["netdisco_config"].empty? && values["devices"].empty?
+          raise ArgumentError, "netdisco_config must be a configuration path and cannot be combined with devices" unless values["netdisco_config"].is_a?(String) && !values["netdisco_config"].empty? && values["devices"].empty?
           values["netdisco_config"] = File.expand_path(values["netdisco_config"], Dir.pwd)
         end
         Net::Connector::Inventory::Filters::LISTS.each_key { |key| values[key] = values.fetch(key, []) }
         Net::Connector::Inventory::Filters.selection(values)
         ssh = values["ssh"]
-        raise ArgumentError, "ssh 包含未知或敏感字段" unless ssh.is_a?(Hash) && (ssh.keys - SSH_FIELDS).empty?
+        raise ArgumentError, "ssh contains unknown or sensitive fields" unless ssh.is_a?(Hash) && (ssh.keys - SSH_FIELDS).empty?
         ssh = SSH_DEFAULTS.merge(ssh)
-        raise ArgumentError, "host_key_policy 须为 strict 或 accept_new" unless %w[strict accept_new].include?(ssh["host_key_policy"])
-        %w[command_timeout login_timeout].each { |key| raise ArgumentError, "#{key} 须为正数" unless ssh[key].is_a?(Numeric) && ssh[key].finite? && ssh[key].positive? }
-        raise ArgumentError, "port 须为 1～65535" if ssh.key?("port") && (!ssh["port"].is_a?(Integer) || !(1..65535).cover?(ssh["port"]))
+        raise ArgumentError, "host_key_policy must be strict or accept_new" unless %w[strict accept_new].include?(ssh["host_key_policy"])
+        %w[command_timeout login_timeout].each { |key| raise ArgumentError, "#{key} must be positive" unless ssh[key].is_a?(Numeric) && ssh[key].finite? && ssh[key].positive? }
+        raise ArgumentError, "port must be 1 to 65535" if ssh.key?("port") && (!ssh["port"].is_a?(Integer) || !(1..65535).cover?(ssh["port"]))
         if ssh.key?("known_hosts")
-          raise ArgumentError, "known_hosts 须为路径" unless ssh["known_hosts"].is_a?(String) && !ssh["known_hosts"].empty?
+          raise ArgumentError, "known_hosts must be a path" unless ssh["known_hosts"].is_a?(String) && !ssh["known_hosts"].empty?
           ssh["known_hosts"] = File.expand_path(ssh["known_hosts"], Dir.pwd)
         end
         values["ssh"] = ssh
         values["directory"] = File.expand_path(values["directory"], Dir.pwd)
       rescue IPAddr::Error
-        raise ArgumentError, "hosts 须为 IP 或 CIDR，不展开地址、不扫描网段", cause: nil
+        raise ArgumentError, "hosts must contain IPs or CIDRs; addresses are not expanded and subnets are not scanned", cause: nil
       end
     end
   end

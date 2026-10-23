@@ -15,12 +15,12 @@ module Vxlan
 
     # 类型判别只发生在输入边界，不接受任意脚本或未声明字段。
     def self.build(change)
-      raise ArgumentError, "增量须为映射" unless change.is_a?(Hash)
+      raise ArgumentError, "Change must be a mapping" unless change.is_a?(Hash)
       case change["kind"]
       when "vlan_vni_add" then VlanVni.new(change)
       when "svi_gateway_add" then SviGateway.new(change)
       when "svi_acl" then SviAcl.new(change)
-      else raise ArgumentError, "不支持的增量类型"
+      else raise ArgumentError, "Unsupported change type"
       end
     end
 
@@ -34,9 +34,9 @@ module Vxlan
 
     # 构造时一次校验和渲染，随后调用者不能改变已确认的参数或命令。
     def initialize(change)
-      raise ArgumentError, "请使用 ChangePlan.build 构造业务增量" if instance_of?(ChangePlan)
+      raise ArgumentError, "Use ChangePlan.build to construct a domain change" if instance_of?(ChangePlan)
       unless change.is_a?(Hash) && change.keys.all?(String) && (change.keys - self.class::FIELDS).empty? && change["kind"] == self.class::KIND
-        raise ArgumentError, "增量字段无效"
+        raise ArgumentError, "Invalid change fields"
       end
       @change = CtxParser::Immutable.copy(change)
       validate_parameters!
@@ -66,8 +66,8 @@ module Vxlan
 
     # 三种动作均定位已有 L2 业务，VLAN/VNI 不从字符串或名称猜测。
     def validate_parameters!
-      raise ArgumentError, "VLAN 无效" unless @change["vlan"].is_a?(Integer) && @change["vlan"].between?(1, 4094)
-      raise ArgumentError, "VNI 无效" unless @change["vni"].is_a?(Integer) && @change["vni"].between?(1, 16_777_215)
+      raise ArgumentError, "Invalid VLAN" unless @change["vlan"].is_a?(Integer) && @change["vlan"].between?(1, 4094)
+      raise ArgumentError, "Invalid VNI" unless @change["vni"].is_a?(Integer) && @change["vni"].between?(1, 16_777_215)
     end
 
     # 网关相关增量必须携带明确租户及单个已验证 IPv4 前缀。
@@ -75,7 +75,7 @@ module Vxlan
       address = @change["address"]
       unless @change["vrf"].is_a?(String) && !@change["vrf"].empty? && address.is_a?(String) &&
           address.match?(/\A\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}\z/) && IPAddr.new(address).ipv4?
-        raise ArgumentError, "缺少已验证的业务网关"
+        raise ArgumentError, "Verified service gateway is missing"
       end
     end
 

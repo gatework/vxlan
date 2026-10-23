@@ -30,7 +30,7 @@ RSpec.describe "Vxlan offline review" do
       end
       audit = { findings: [ { fabric: "test", code: "fabric_acl_content", title: "ACL diff", evidence: rows } ] }
       text = report.fabric_text(audit, [])
-      expect(text).to include("依赖对象未验证", "deny ip addrgroup UNKNOWN any", "permit ip addrgroup UNKNOWN any")
+      expect(text).to include("Dependencies unverified", "deny ip addrgroup UNKNOWN any", "permit ip addrgroup UNKNOWN any")
       expect(text).not_to include(CtxRunner::Fingerprint.call(nil)[0, 12])
     end
   end
@@ -56,7 +56,7 @@ RSpec.describe "Vxlan offline review" do
       plan = JSON.parse(File.read(File.join(generated, "plan.json")))
       expect(plan["changes"]).to eq({})
       expect(plan["audits"].first["items"]).not_to be_empty
-      expect(File.read(File.join(generated, "devices", "leaf-192.0.2.1.txt"))).to include("设备：leaf", "未执行")
+      expect(File.read(File.join(generated, "devices", "leaf-192.0.2.1.txt"))).to include("Device: leaf", "no device configuration executed")
     end
   end
   it "keeps devices without findings represented without generating empty scripts" do
@@ -69,7 +69,7 @@ RSpec.describe "Vxlan offline review" do
       expect(Dir.children(report.directory).sort).to eq(%w[devices events.jsonl plan.json plan.json.sha256 summary.json summary.txt])
       manifest = JSON.parse(File.read(File.join(report.directory, "summary.json")))
       expect(manifest["reports"].first).to include("report" => "devices/leaf.txt", "source_sha256" => "a" * 64)
-      expect(File.read(File.join(report.directory, "summary.txt"))).to include("未命中规则 1 台")
+      expect(File.read(File.join(report.directory, "summary.txt"))).to include("no rules matched 1 devices")
     end
   end
 

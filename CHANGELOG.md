@@ -4,6 +4,12 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.5.0 (2026-10-23)
+
+- Consume immutable string-keyed Runner summary documents throughout reports and progress callbacks.
+- Use English diagnostics, CLI help, change plans and Fabric review reports.
+- Require Runner 0.2, net-connector 0.18 and the coordinated command receipt protocol.
+
 ## 0.4.2 (2026-10-23)
 
 - Migrate shared CLI entrypoints to ctx_cli 0.2.0 names without legacy aliases.

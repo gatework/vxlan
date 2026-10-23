@@ -13,7 +13,7 @@ module Vxlan
           begin
             require_relative "cli/collect"
           rescue LoadError
-            error.puts "collect 需要含共享清单筛选的当前 net-connector；请安装项目依赖。"
+            error.puts "collect requires a current net-connector with shared inventory filters; install the project dependencies."
             next 2
           end
           Collect.new(env: env, out: out, error: error, input: input, **collect_options).run(arguments)
@@ -36,7 +36,7 @@ module Vxlan
     end
 
     # 全局帮助不读取配置、环境文件或设备清单。
-    USAGE = "用法：vxlan collect [选项]  只读采集与报告\n      vxlan parse [选项]    离线文件或 stdin 解析\n      vxlan review --batch DIR  离线修复建议\n      vxlan apply --plan FILE --item ID  交互确认后下发\n      vxlan --version\n使用 vxlan collect --help 、vxlan parse --help 或 vxlan review --help 查看参数；--help-all 查看完整约定，--examples 查看范例。".freeze
+    USAGE = "Usage: vxlan collect [options]  Read-only collection and reports\n       vxlan parse [options]    Parse offline files or stdin\n       vxlan review --batch DIR  Offline remediation recommendations\n       vxlan apply --plan FILE --item ID  Apply after interactive confirmation\n       vxlan --version\nUse vxlan collect --help, vxlan parse --help or vxlan review --help for options; --help-all for full conventions, --examples for examples.".freeze
     private_constant :USAGE
   end
 end
