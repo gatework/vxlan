@@ -21,7 +21,7 @@ gem "vxlan"
 
 然后执行 `bundle install`；也可直接执行 `gem install vxlan`。Ruby 加载入口为 `vxlan`，公开命名空间为 `Vxlan`；gem 包名与 Ruby 命名空间分别维护。
 
-模块运行依赖：[`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver)。 共享 Gatework 依赖要求兼容的 0.2.x API；应用应提交自己的 `Gemfile.lock`，保持部署可复现。使用本库不需要启动 Rails 或配置兄弟模块的本地路径。
+模块运行依赖：[`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver), [`ctx_runner`](https://github.com/gatework/ctx_runner), [`ctx_cli`](https://github.com/gatework/ctx_cli)。gemspec 不限制依赖版本；应用应提交经过验证的 `Gemfile.lock`，保持部署可复现。使用本库不需要启动 Rails 或配置兄弟模块的本地路径。
 
 发布产物和校验值见 [GitHub Releases](https://github.com/gatework/vxlan/releases)，已发布版本以 [RubyGems](https://rubygems.org/gems/vxlan) 为准。
 

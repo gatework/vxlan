@@ -4,6 +4,12 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.5.1 (2026-10-24)
+
+- Validate EVPN configured-peer totals within each VRF and address-family block, retain administrative shutdown and unknown AS identities, and preserve state-valued prefix totals.
+- Use shared CLI argument and diagnostic boundaries for apply; preserve exit status, cancellation and uncertain journals when stderr fails, without replaying commands.
+- Consume JSON Pointer configuration provenance and leave shared gem dependency versions to host lockfiles.
+
 ## 0.5.0 (2026-10-23)
 
 - Consume immutable string-keyed Runner summary documents throughout reports and progress callbacks.

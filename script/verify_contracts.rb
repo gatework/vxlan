@@ -12,7 +12,7 @@ mutations = JSON.parse(<<~'JSON')
   {
     "id": "non-assertion-control",
     "file": "lib/vxlan/cisco_nxos/parsers/show_bgp_l2vpn_evpn_summary.rb",
-    "find": "if counts.sum > peer[:prefixes_received]",
+    "find": "if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]",
     "replacement": "if raise(NoMethodError, \"verification-sentinel\")",
     "spec": "spec/evidence_contract_spec.rb",
     "control": true
@@ -20,7 +20,7 @@ mutations = JSON.parse(<<~'JSON')
   {
     "id": "prefix-statistics-upper-bound",
     "file": "lib/vxlan/cisco_nxos/parsers/show_bgp_l2vpn_evpn_summary.rb",
-    "find": "if counts.sum > peer[:prefixes_received]",
+    "find": "if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]",
     "replacement": "if false",
     "spec": "spec/evidence_contract_spec.rb"
   },
@@ -33,15 +33,15 @@ mutations = JSON.parse(<<~'JSON')
   },
   {
     "id": "checkpoint-bypass",
-    "file": "lib/vxlan/cli/report.rb",
-    "find": "publish(\"summary.json\", checkpoint_body)",
-    "replacement": "nil",
+    "file": "lib/ctx_runner/report.rb",
+    "find": "publish(relative, body)\n      published = true",
+    "replacement": "published = true",
     "spec": "spec/cli/report_spec.rb"
   },
   {
     "id": "committed-recovery-bypass",
-    "file": "lib/vxlan/cli/report.rb",
-    "find": "restore_checkpoint(checkpoint_body) if error.committed?",
+    "file": "lib/ctx_runner/report.rb",
+    "find": "restore_checkpoint(checkpoint_body, relative: relative) if error.committed?",
     "replacement": "nil",
     "spec": "spec/cli/report_spec.rb"
   },
@@ -68,7 +68,7 @@ mutations = JSON.parse(<<~'JSON')
   },
   {
     "id": "execution-starting-snapshot",
-    "file": "lib/vxlan/cli/apply.rb",
+    "file": "lib/ctx_runner/execution.rb",
     "find": "before = CtxParser::Immutable.copy(session.read_configuration)",
     "replacement": "before = session.read_configuration",
     "spec": "spec/cli/apply_spec.rb"
@@ -77,11 +77,14 @@ mutations = JSON.parse(<<~'JSON')
 JSON
 root = File.expand_path("..", __dir__)
 domain = "vxlan"
+runner = Gem::Specification.find_by_name("ctx_runner")
 boot = <<~'RUBY'
   require "bundler/setup"
   copy, domain = ARGV.shift(2)
   copy = File.realpath(copy)
   $LOAD_PATH.unshift(File.join(copy, "lib"))
+  require "ctx_runner"
+  abort "Wrong Runner mutation source" unless $LOADED_FEATURES.include?(File.join(copy, "lib/ctx_runner.rb"))
   require domain
   abort "Wrong mutation source" unless $LOADED_FEATURES.include?(File.join(copy, "lib", "#{domain}.rb"))
   require "rspec/core"
@@ -91,6 +94,8 @@ results = []
 baseline = nil
 Dir.mktmpdir("evidence-mutations-") do |copy|
   %w[lib spec].each { |name| FileUtils.cp_r(File.join(root, name), File.join(copy, name)) }
+  # 公共契约已由 Runner 拥有，只在临时副本中变异当前选中依赖的实现。
+  FileUtils.cp_r(Dir[File.join(runner.full_gem_path, "lib", "*")], File.join(copy, "lib"))
   run = lambda do |specs|
     output, error, status = Open3.capture3({ "BUNDLE_GEMFILE" => File.join(root, "Gemfile"), "RUBYOPT" => nil },
       RbConfig.ruby, "-e", boot, copy, domain, *specs.map { |spec| File.join(copy, spec) }, chdir: root)
@@ -123,5 +128,5 @@ Dir.mktmpdir("evidence-mutations-") do |copy|
     end
   end
 end
-puts JSON.pretty_generate(runtime: RUBY_VERSION, baseline: baseline, mutants: results)
+puts JSON.pretty_generate(runtime: RUBY_VERSION, dependency: { name: runner.name, version: runner.version.to_s, source: runner.full_gem_path }, baseline: baseline, mutants: results)
 exit(results.all? { |result| result.fetch(:control) ? result.fetch(:control_rejected) : result.fetch(:detected) } ? 0 : 1)

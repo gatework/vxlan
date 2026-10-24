@@ -1,8 +1,9 @@
 # frozen_string_literal: true
 
-require "optparse"
+require "ctx_cli/command"
 require "ctx_cli/terminal"
 require "ctx_cli/input"
+require "ctx_cli/output"
 require "json"
 require "ctx_runner/document"
 require "digest"
@@ -45,14 +46,14 @@ module Vxlan
       def initialize(env: ENV, out: $stdout, error: $stderr, input: $stdin, connector_factory: nil, discovery: {})
         @env, @out, @error, @input, @factory = env, out, error, input, connector_factory
         @discovery = discovery
+        @output = CtxCli::Output.new(out: out, error: error)
       end
 
       # 没有 --yes 或自动回退；零退出码只确认配置回读，不声称业务已验收。
       def run(argv)
         @store, @execution = nil, nil
-        options = { directory: File.join(Dir.pwd, "vxlan-executions"), port: 22 }
-        parser = OptionParser.new do |p|
-          p.banner = "Usage: vxlan apply --plan FILE --item ID [--env-file FILE] (requires explicit confirmation in an interactive terminal)"
+        command = CtxCli::Command.new(banner: "Usage: vxlan apply --plan FILE --item ID [--env-file FILE] (requires explicit confirmation in an interactive terminal)",
+          defaults: { directory: File.join(Dir.pwd, "vxlan-executions"), port: 22 }, out: @out) do |p, options|
           p.on("--plan FILE", "Batch plan.json; requires a SHA256 checksum file in the same directory") { |value| options[:plan] = value }
           p.on("--item ID", "Explicitly select one change from the batch plan; bulk execution is prohibited") { |value| options[:item] = value }
           p.on("--env-file FILE", "Explicit credentials file; process environment takes precedence") { |value| options[:env_file] = value }
@@ -60,11 +61,11 @@ module Vxlan
           p.on("--port N", Integer, "SSH port, default 22") { |value| options[:port] = value }
           p.on("-h", "--help", "Show help without connecting to devices") { options[:help] = true }
         end
-        rest = parser.parse(argv.dup)
-        return @out.puts(parser) || 0 if options[:help]
+        options = command.parse(argv)
+        return 0 if command.informational?
         terminal = CtxCli::Terminal.new(input: @input, out: @out)
         terminal.require_tty!(@error)
-        raise ArgumentError, "A single plan is required" unless rest.empty? && options[:plan] && options[:port].between?(1, 65_535)
+        raise ArgumentError, "A single plan is required" unless options[:plan] && options[:port].between?(1, 65_535)
         body = CtxCli::Input.read(path: options[:plan])
         hash = Digest::SHA256.hexdigest(body)
         plan = CtxParser::Immutable.copy(select_plan(JSON.parse(body), options, hash))
@@ -85,11 +86,11 @@ module Vxlan
         0
       rescue Interrupt
         report_journal_failure
-        @error.puts "Operation interrupted; #{@execution&.started? ? 'Device effects may be incomplete; read back and verify before proceeding. Do not replay commands.' : 'No service configuration was sent.'}"
+        @output.diagnostic "Operation interrupted; #{@execution&.started? ? 'Device effects may be incomplete; read back and verify before proceeding. Do not replay commands.' : 'No service configuration was sent.'}"
         130
       rescue StandardError, LoadError => error
         report_journal_failure
-        @error.puts "Apply stopped (#{error.class.name}); #{@execution&.started? ? 'Effects are not fully confirmed; read back first. No automatic replay or rollback.' : 'No service configuration was sent; check the terminal, plan, credentials and current configuration for consistency.'}"
+        @output.diagnostic "Apply stopped (#{error.class.name}); #{@execution&.started? ? 'Effects are not fully confirmed; read back first. No automatic replay or rollback.' : 'No service configuration was sent; check the terminal, plan, credentials and current configuration for consistency.'}"
         2
       end
 
@@ -139,8 +140,8 @@ module Vxlan
       # 公共执行器保存失败状态；CLI 只呈现持久性尚未确认的诊断。
       def report_journal_failure
         return unless @execution&.journal_failed?
-        @error.puts "Execution log finalization is unconfirmed; existing checkpoints retained. Do not replay configuration based on this state."
-      rescue StandardError, Interrupt
+        @output.diagnostic "Execution log finalization is unconfirmed; existing checkpoints retained. Do not replay configuration based on this state."
+      rescue Interrupt
         nil
       end
     end

@@ -21,7 +21,7 @@ gem "vxlan"
 
 Then run `bundle install`, or install directly with `gem install vxlan`. The require path is `vxlan` and the public namespace is `Vxlan`; package names and Ruby namespaces are intentionally separate.
 
-Internal runtime dependencies: [`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver). Shared Gatework dependencies require the compatible 0.2.x API. Applications should commit their own `Gemfile.lock` to make deployments reproducible. No Rails boot or sibling checkout paths are required.
+Internal runtime dependencies: [`ctx_parser`](https://github.com/gatework/ctx_parser), [`ctx_driver`](https://github.com/gatework/ctx_driver), [`ctx_runner`](https://github.com/gatework/ctx_runner), [`ctx_cli`](https://github.com/gatework/ctx_cli). The gemspec leaves their versions unconstrained; applications should commit a verified `Gemfile.lock` for reproducible deployments. No Rails boot or sibling checkout paths are required.
 
 Release artifacts and checksums are available from [GitHub Releases](https://github.com/gatework/vxlan/releases). Check [RubyGems](https://rubygems.org/gems/vxlan) for published versions.
 
@@ -90,7 +90,9 @@ For native sessions, the host holds `native.with_operation(:vxlan)` around the f
 
 ## Domain vocabulary
 
-Runtime variants preserve unavailable NVE router MACs as `nil`, optional empty CDP `dc_uuid` as `nil`, and starred vPC `down*` members as `state: "down"` with `forwarding_via_peer_link: true`. Wrapped vPC consistency/reason fields are joined only for the recognized continuation. BGP prefix statistics follow supported route-type columns in the header, with or without `PfxRcd`, and remain bounded by the main neighbor's received-prefix count. A blank command body or an empty L2RIB table without explicit empty/count evidence remains partial.
+Runtime variants preserve unavailable NVE router MACs as `nil`, optional empty CDP `dc_uuid` as `nil`, and starred vPC `down*` members as `state: "down"` with `forwarding_via_peer_link: true`. Wrapped vPC consistency/reason fields are joined only for the recognized continuation. BGP prefix statistics follow supported route-type columns in the header, with or without `PfxRcd`, and remain bounded by the main neighbor's received-prefix count when that total is known. A blank command body or an empty L2RIB table without explicit empty/count evidence remains partial.
+
+EVPN configured-peer totals are checked within each VRF/address-family block; capable peers are distinct from the complete neighbor list. Administrative shutdown is retained as `shut_(admin)`. Unestablished AS 0 neighbors expose `remote_as: nil`; a state-valued prefix column keeps `prefixes_received: nil`, even when route-type counters are shown. Published-format sources and verification limits are recorded in [the evidence contracts](docs/evidence-contracts.md#evpn-summary-evidence-update-2026-10-23).
 
 VLAN IDs, VNIs, VRFs, and NVE members are separate identities. Configuration review joins VLAN mappings and NVE members by VNI; it does not infer operational reachability. `BgpNeighbors` enumerates configured neighbors after peer-template inheritance, not established BGP sessions. `PrefixListReferences` describes route-map selectors and their routing consumers; those references do not by themselves prove route acceptance.
 
@@ -136,5 +138,7 @@ MIT. See [LICENSE](LICENSE).
 `vxlan collect` 默认输出逐设备诊断，使用 `--scripts` 可选导出配置建议；`vxlan review --batch DIR` 可离线补生成既有报告的候选配置、条件回退和只读验收命令。导出不会执行变更；独立 `apply --plan FILE --item ID` 必须在真实终端明确确认，配置漂移或失败即停止。详见[修复建议说明](docs/remediation.md)。 业务分层、会话所有权与执行边界见[架构说明](docs/architecture-zh.md)。
 
 Review output follows the net-connector topology layout: `summary.txt`, `summary.json`, `devices/*.txt`, optional `scripts/*.cfg`, and a checksummed `plan.json`. Generated reports contain no Markdown. Select exactly one change with `vxlan apply --plan plan.json --item ID`; interactive confirmation remains mandatory.
+
+Apply returns `2` on failure and `130` on interruption even if stderr cannot accept diagnostics. Existing execution journals retain uncertain device effects; commands are never replayed automatically. Unexpected positional arguments are rejected, including after `--help`.
 
 Offline review requires `snapshot.target.host` to match the canonical device host. Reports without target identity must be collected again; the unbound legacy format is no longer accepted.

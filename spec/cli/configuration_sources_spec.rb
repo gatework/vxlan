@@ -28,7 +28,7 @@ RSpec.describe "VXLAN shared configuration sources" do
     result = options([ "--config", path ]).load
     expect(result.values).to include("parallel" => 9, "directory" => directory)
     expect(result.sources.fetch("configuration_files")).to eq([ path ])
-    expect(result.sources.fetch("fields").fetch("parallel")).to eq(path)
+    expect(result.sources.fetch("fields").fetch("/parallel")).to eq(path)
     expect(result.values.fetch("devices")).to eq([])
   end
 

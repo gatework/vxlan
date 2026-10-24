@@ -1,5 +1,15 @@
 # 证据契约与验收记录
 
+## EVPN summary evidence update (2026-10-23)
+
+配置邻居总数在每个物理 VRF/AF 段内核对所有主表记录；缺失、额外记录和矛盾声明使证据为 partial。capable 与全部记录数不同，仅核对其不超过配置总数及重复声明一致性，不据它推断逐邻居健康。零配置邻居可证明空表；没有声明总数的历史格式仍按已有语法/完整采集契约处理。
+
+管理关闭状态保留为 `shut_(admin)`；未建立会话显示的 AS 0 表达为 `remote_as: nil`，已建立行仍必须有合法非零 AS。路由类型表允许 PfxRcd 显示与主表一致的状态，保留 `prefixes_received: nil`，不以类型计数合计伪造总数。已知总数继续约束类型计数之和；缺失、重复、身份或状态不匹配的统计仍为 partial。后续重复主表头不会清除之前未完成的统计证据。
+
+依据为 [Cisco NX-OS 9.3(x) 配置指南](https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus9000/sw/93x/label-switching/b-cisco-nexus-9000-series-nx-os-label-switching-configuration-guide-93x/b-cisco-nexus-9000-series-nx-os-label-switching-configuration-guide-93x_chapter_01000.html) 中的管理关闭/soft reconfiguration 格式、[Cisco DevNet BGP CLI 参考](https://developer.cisco.com/docs/nx-api-cli-reference-for-the-cisco-nexus-9000-series-platform/bgp-commands/) 的 AS 0/Idle 与 dampening 格式，以及 [Cisco Multisite 排障文档](https://www.cisco.com/c/en/us/support/docs/switches/nexus-9000-series-switches/215780-troubleshoot-evpn-vxlan-in-multisite-env.html) 的主表与类型统计关联。最后一份材料明确列出对应边界网关为 N9K-C93108TC-FX、NX-OS 9.3(1)。测试使用保留地址重组的文档格式，不是新的实机采集，也不证明所有设备版本兼容。
+
+现有解析测试验收上述边界。契约变异脚本在临时副本中检验本仓库实现，并复制当前 Bundler 选中的 Runner 库以验证已迁移的报告/执行契约；不改动已安装 gem，不隐式加载相邻源码。运行结果记录依赖来源和版本。历史证据与既有源样本继续保留如下。
+
 本轮从代码规范审查收紧到三条纵向链路：解析事实与完整性、失败与报告收尾、声明规则一致性。方案见 [实施计划](superpowers/plans/2026-10-19-evidence-contracts.md)，约束见 [设计](superpowers/specs/2026-10-19-evidence-contracts.md)。已有 WIP 保留，未提交或发布。
 
 ## 来源与预期

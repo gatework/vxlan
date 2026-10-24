@@ -8,6 +8,121 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
       "Neighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n#{rows}", complete: true)
   end
 
+  def counts(configured, capable)
+    "BGP table version is 10, L2VPN EVPN config peers #{configured}, capable peers #{capable}\n"
+  end
+
+  let(:established) { "192.0.2.1 4 65001 1 1 10 0 0 1d 5\n" }
+  let(:idle) { "192.0.2.2 4 65002 0 0 0 0 0 1d Idle\n" }
+  let(:statistics) do
+    "Neighbor T AS PfxRcd Type-2 Type-3\n" \
+      "192.0.2.1 I 65001 5 2 3\n" \
+      "192.0.2.2 E 65002 Idle 0 0\n"
+  end
+
+  it "checks declared configured peers without treating capable peers as the row count" do
+    expect(parse(counts(2, 1) + established + idle)).to be_complete
+    [ 0, 1, 3 ].each do |configured|
+      result = parse(counts(configured, 0) + established + idle)
+      expect(result.status).to eq(:partial)
+      expect(result.records.size).to eq(2)
+      expect(result.issues).to include(include(code: :count_mismatch, expected: configured, observed: 2))
+    end
+  end
+
+  it "retains contradictory declarations even when the original count returns" do
+    [ counts(1, 1), counts(2, 0), counts(2, 3) ].each do |conflict|
+      result = parse(counts(2, 1) + conflict + counts(2, 1) + established + idle)
+      expect(result.status).to eq(:partial)
+      expect(result.records.size).to eq(2)
+      expect(result.issues).to include(include(code: :conflicting_peer_counts))
+    end
+    impossible = parse(counts(2, 3) + established + idle)
+    expect(impossible.issues).to include(include(code: :invalid_peer_counts, configured: 2, capable: 3))
+  end
+
+  it "accepts explicit zero peers but never lets another scope hide a missing neighbor" do
+    expect(parse(counts(0, 0))).to be_complete
+    expect(parse(counts(0, 0)).records).to be_empty
+    scope = "BGP summary information for VRF default, address family L2VPN EVPN\n"
+    header = "Neighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n"
+    first = scope + counts(2, 1) + header + established
+    second = scope.sub("default", "BLUE") + counts(0, 0) + header
+    result = described_class.parse(first + second, complete: true)
+    expect(result.status).to eq(:partial)
+    expect(result.records.map { |row| row[:vrf] }).to eq([ "default" ])
+    expect(result.issues).to include(include(code: :count_mismatch, expected: 2, observed: 1))
+    expect(described_class.parse(second, complete: false).status).to eq(:partial)
+  end
+
+  it "retains administrative shutdown and unknown AS without inventing an established session" do
+    shutdown = idle.sub("Idle", "Shut (Admin)")
+    result = parse(counts(2, 1) + established + shutdown)
+    expect(result).to be_complete
+    expect(result.records.last).to include(state: "shut_(admin)", remote_as: 65002, prefixes_received: nil)
+    unknown = parse(counts(1, 0) + idle.sub("4 65002", "4 0"))
+    expect(unknown).to be_complete
+    expect(unknown.records.first).to include(remote_as: nil, state: "idle", prefixes_received: nil)
+    [ established.sub("4 65001", "4 0"), established.sub("4 65001", "4 4294967296"), idle.sub("4 65002", "4 4294967296") ].each do |row|
+      invalid = parse(counts(1, 0) + row)
+      expect(invalid.status).to eq(:partial)
+      expect(invalid.records).to be_empty
+    end
+  end
+
+  it "recognizes documented soft reconfiguration and dampening summaries only when well formed" do
+    decorations = "12 received paths for inbound soft reconfiguration\n" \
+      "12 identical, 0 modified, 0 filtered received paths using 0 bytes\n" \
+      "Dampening configured, 0 history paths, 2 dampened paths\n"
+    expect(parse(counts(1, 1) + decorations + established)).to be_complete
+    [ decorations.sub("12 identical", "unknown identical"), decorations.sub("2 dampened", "-2 dampened") ].each do |invalid|
+      expect(parse(counts(1, 1) + invalid + established).status).to eq(:partial)
+    end
+  end
+
+  it "joins state-valued prefix statistics without converting an unknown total to zero" do
+    [ "Idle", "Idle (Admin)", "Shut (Admin)" ].each do |state|
+      result = parse(counts(2, 1) + established + idle.sub("Idle", state) + statistics.sub("Idle", state))
+      expect(result).to be_complete, result.issues.inspect
+      expect(result.records.last).to include(prefixes_received: nil, prefixes_by_type: { type2: 0, type3: 0 })
+      expect(result.records.last[:state]).not_to eq("established")
+    end
+    unknown = (idle + statistics).gsub("65002", "0").sub("Idle 0 0", "Idle 2 1")
+    result = parse(counts(2, 1) + established + unknown)
+    expect(result).to be_complete
+    expect(result.records.last).to include(remote_as: nil, prefixes_received: nil, prefixes_by_type: { type2: 2, type3: 1 })
+  end
+
+  it "rejects inconsistent state statistics while retaining the independently parsed neighbor" do
+    [ statistics.sub("Idle 0 0", "Active 0 0"), statistics.sub("Idle 0 0", "0 0 0"),
+      statistics.sub("E 65002", "E 0"), statistics.sub("Idle 0 0", "Idle 0"), statistics + statistics.lines.last,
+      statistics.delete_suffix(statistics.lines.last) ].each do |invalid|
+      result = parse(counts(2, 1) + established + idle + invalid)
+      expect(result.status).to eq(:partial)
+      expect(result.records.last).to include(state: "idle", prefixes_received: nil)
+    end
+  end
+
+  it "accepts type statistics without a total column while preserving unknown prefix totals" do
+    types = "Neighbor T AS Type-2 Type-3\n192.0.2.1 I 65001 2 3\n192.0.2.2 E 65002 0 0\n"
+    result = parse(counts(2, 1) + established + idle + types)
+    expect(result).to be_complete
+    expect(result.records.last).to include(prefixes_received: nil, state: "idle", prefixes_by_type: { type2: 0, type3: 0 })
+  end
+
+  it "does not forget missing prefix statistics when a repeated neighbor header follows" do
+    header = "Neighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n"
+    result = parse(counts(2, 1) + established + idle + statistics.delete_suffix(statistics.lines.last) + header)
+    expect(result.status).to eq(:partial)
+    expect(result.issues).to include(include(code: :missing_prefix_statistics, expected: 2, observed: 1))
+  end
+
+  it "requires a documented state spelling in the prefix table before normalization" do
+    result = parse(counts(2, 1) + established + idle.sub("Idle", "Idle (Admin)") + statistics.sub("Idle", "Idle_(Admin)"))
+    expect(result.status).to eq(:partial)
+    expect(result.records.last).not_to have_key(:prefixes_by_type)
+  end
+
   it "requires a known EVPN scope for nonempty neighbor evidence" do
     row = "Neighbor V AS MsgRcvd MsgSent TblVer InQ OutQ Up/Down State/PfxRcd\n192.0.2.1 4 65001 1 1 0 0 0 1d 5\n"
     [ "", "BGP summary information for VRF default, address family UNKNOWN\n" ].each do |scope|

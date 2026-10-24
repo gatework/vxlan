@@ -95,22 +95,6 @@ RSpec.describe Vxlan::CLI::Report do
     expect(File).not_to exist(File.join(report.directory, "summary.json"))
   end
 
-  it "preserves the original cancellation after final rename even when checkpoint recovery fails" do
-    report = described_class.new(@root)
-    original = File.method(:rename)
-    cancellation = Interrupt.new("first cancellation")
-    attempts = 0
-    allow(File).to receive(:rename) do |source, target|
-      attempts += 1 if target.end_with?("/summary.json")
-      raise Errno::ENOSPC if target.end_with?("/summary.json") && attempts >= 3
-      original.call(source, target)
-      raise cancellation if target.end_with?("/summary.json") && attempts == 2
-    end
-    expect { report.finish([ result.merge(report_saved: true) ]) }.to raise_error { |error| expect(error).to equal(cancellation) }
-    expect(report).to be_recovery_failed
-    expect(File).not_to exist(File.join(report.directory, "summary.json"))
-  end
-
   it "leaves an explicitly incomplete JSON checkpoint when text summary publication fails" do
     report = described_class.new(@root)
     original = File.method(:rename)

@@ -17,6 +17,9 @@ module Vxlan
         FIELDS = %i[peer_ip version remote_as messages_received messages_sent table_version input_queue output_queue uptime state].freeze
         INTEGERS = %i[version remote_as messages_received messages_sent table_version input_queue output_queue].freeze
         PREFIX_TYPES = %i[type1 type2 type3 type4 type5 type6 type7 type8 type12].freeze
+        TABLE = /\ABGP table version is \d+(?:, L2VPN EVPN config peers (\d+), capable peers (\d+))?\z/i
+        STATE = /\A(?:\d+|Idle(?: \(Admin\))?|Active|Connect|OpenSent|OpenConfirm|Shutdown|Shut \(Admin\))\z/i
+        DETAILS = /\A(?:\d+ network entries and \d+ paths using \d+ bytes of memory|BGP attribute entries \[\d+\/\d+\], BGP AS path entries \[\d+\/\d+\]|BGP community entries \[\d+\/\d+\], BGP clusterlist entries \[\d+\/\d+\]|\d+ received paths for inbound soft reconfiguration|\d+ identical, \d+ modified, \d+ filtered received paths using \d+ bytes|Dampening configured, \d+ history paths, \d+ dampened paths)\z/i
 
         private
 
@@ -58,17 +61,23 @@ module Vxlan
         # 解析命令表格行，保留数量及格式错误行诊断。
         def parse_rows(text)
           scope, prefix_columns, prefix_seen, peers = {}, nil, {}, {}
-          prefix_total = false
+          prefix_total, prefix_table, declarations = false, false, []
           each_content_line(text) do |line, number|
             if HEADER.match?(line)
               @header = true
+              prefix_columns = nil
             elsif (match = SCOPE.match(line))
               scope = { vrf: match[1], address_family: match[2] }
               unparsed_records(number) unless scope[:address_family] == "L2VPN EVPN"
               prefix_columns = nil
             elsif (match = ROUTER.match(line))
               scope.merge!(router_id: match[1], local_as: match[2])
+            elsif (match = TABLE.match(line))
+              declarations << match.captures.map(&:to_i) if match[1]
+            elsif DETAILS.match?(line)
+              next
             elsif (match = /\ANeighbor\s+T\s+AS\s+(?:(PfxRcd)\s+)?(Type-[1-9]\d*(?:\s+Type-[1-9]\d*)*)\z/.match(line))
+              prefix_table = true
               prefix_total = !match[1].nil?
               prefix_columns = match[2].split(" ").map { |column| column.downcase.delete("-").to_sym }
               if prefix_columns.uniq != prefix_columns || (prefix_columns - PREFIX_TYPES).any?
@@ -76,16 +85,11 @@ module Vxlan
                 prefix_columns = nil
               end
             elsif prefix_columns
-              words = line.split(" ")
-              address = CtxParser::Values.ip_address(words[0], allow_zone: true) if ip_address?(words[0])
-              peer = peers[[ scope[:vrf], scope[:address_family], address ]]
-              offset = prefix_total ? 4 : 3
-              if words.size == prefix_columns.size + offset && %w[I E].include?(words[1]) && words.drop(2).all? { |word| word.match?(/\A\d+\z/) } &&
-                peer && peer[:prefixes_received] && !prefix_seen.key?(peer.object_id) && peer[:remote_as] == words[2].to_i &&
-                (!prefix_total || peer[:prefixes_received] == words[3].to_i)
-                counts = words.drop(offset).map(&:to_i)
+              statistics = prefix_record(line, scope: scope, peers: peers, columns: prefix_columns, total: prefix_total)
+              if statistics && !prefix_seen.key?(statistics.first.object_id)
+                peer, counts = statistics
                 # 路由类型是总前缀的子集；未展示的类型允许存在，已展示之和不能超过总数。
-                if counts.sum > peer[:prefixes_received]
+                if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]
                   @issues << { code: :inconsistent_prefix_statistics, line: number }
                 else
                   peer[:prefixes_by_type] = prefix_columns.zip(counts).to_h
@@ -95,27 +99,73 @@ module Vxlan
                 unparsed_records(number)
               end
             elsif (match = ROW.match(line))
-              row = FIELDS.zip(match.captures).to_h.merge(scope)
-              INTEGERS.each { |key| row[key] = row[key].to_i }
-              unless row[:vrf] && row[:address_family] == "L2VPN EVPN" && ip_address?(row[:peer_ip]) && row[:version] == 4 && (1..4_294_967_295).cover?(row[:remote_as]) &&
-                row[:state].match?(/\A(?:\d+|Idle(?: \(Admin\))?|Active|Connect|OpenSent|OpenConfirm|Shutdown)\z/i)
+              row = neighbor_record(match, scope)
+              unless row
                 unparsed_records(number)
                 next
               end
-              row[:peer_ip] = CtxParser::Values.ip_address(row[:peer_ip], allow_zone: true)
-              row[:state] = row[:state].downcase.tr(" ", "_")
-              row[:prefixes_received] = row[:state].match?(/\A\d+\z/) ? row[:state].to_i : nil
-              row[:state] = "established" if row[:prefixes_received]
               @rows << row
               # 统计表按完整作用域查找；重复邻居仍由最终身份检查整体隔离。
               peers[row.values_at(:vrf, :address_family, :peer_ip)] ||= row
-            elsif !line.match?(/\A(?:BGP table version is \d+(?:, L2VPN EVPN config peers \d+, capable peers \d+)?|\d+ network entries and \d+ paths using \d+ bytes of memory|BGP attribute entries \[\d+\/\d+\], BGP AS path entries \[\d+\/\d+\]|BGP community entries \[\d+\/\d+\], BGP clusterlist entries \[\d+\/\d+\])\z/i)
+            else
               unparsed_records(number)
             end
           end
-          if prefix_columns && prefix_seen.size != @rows.size
+          validate_peer_counts(declarations, scope)
+          if prefix_table && prefix_seen.size != @rows.size
             @issues << { code: :missing_prefix_statistics, expected: @rows.size, observed: prefix_seen.size }
           end
+        end
+
+        # 配置数覆盖本段全部邻居；capable 只校验自身边界，不代替逐邻居状态。
+        def validate_peer_counts(declarations, scope)
+          values = declarations.uniq
+          @issues << { code: :conflicting_peer_counts } if values.size > 1
+          values.each do |configured, capable|
+            count_mismatch(configured, @rows.size)
+            @issues << { code: :invalid_peer_counts, configured: configured, capable: capable } if capable > configured
+          end
+          @empty = true if values == [ [ 0, 0 ] ] && @rows.empty? && scope[:address_family] == "L2VPN EVPN"
+        end
+
+        # AS 0 只表示尚未建立邻居的未知身份；数值前缀总数始终表示已建立会话。
+        def neighbor_record(match, scope)
+          row = FIELDS.zip(match.captures).to_h.merge(scope)
+          INTEGERS.each { |key| row[key] = row[key].to_i }
+          return unless row[:vrf] && row[:address_family] == "L2VPN EVPN" && ip_address?(row[:peer_ip]) && row[:version] == 4 &&
+            (0..4_294_967_295).cover?(row[:remote_as]) && STATE.match?(row[:state])
+
+          row[:prefixes_received] = row[:state].match?(/\A\d+\z/) ? row[:state].to_i : nil
+          row[:remote_as] = row[:remote_as].nonzero?
+          return if row[:prefixes_received] && row[:remote_as].nil?
+
+          row[:peer_ip] = CtxParser::Values.ip_address(row[:peer_ip], allow_zone: true)
+          row[:state] = row[:prefixes_received] ? "established" : row[:state].downcase.tr(" ", "_")
+          row
+        end
+
+        # 从末尾读取类型计数，保留多词状态，并按主表身份与总数关联统计。
+        def prefix_record(line, scope:, peers:, columns:, total:)
+          words = line.split(" ")
+          return unless words.size >= columns.size + (total ? 4 : 3)
+
+          counts = words.pop(columns.size)
+          address, kind, asn = words.shift(3)
+          return unless ip_address?(address) && %w[I E].include?(kind) && asn.match?(/\A\d+\z/) && counts.all? { |value| value.match?(/\A\d+\z/) }
+
+          address = CtxParser::Values.ip_address(address, allow_zone: true)
+          peer = peers[[ scope[:vrf], scope[:address_family], address ]]
+          return unless peer && peer[:remote_as] == asn.to_i.nonzero?
+
+          if total
+            value = words.join(" ")
+            return unless STATE.match?(value)
+            observed = value.match?(/\A\d+\z/) ? value.to_i : value.downcase.tr(" ", "_")
+            return unless observed == (peer[:prefixes_received] || peer[:state])
+          else
+            return unless words.empty?
+          end
+          [ peer, counts.map(&:to_i) ]
         end
 
         # 归一化平台值，同时保留未知或不支持的状态。

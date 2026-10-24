@@ -2,6 +2,7 @@
 
 require_relative "../spec_helper"
 require "vxlan/cli"
+require "vxlan/cli/apply"
 require "vxlan/cli/report"
 require "vxlan/change_plan"
 require "tmpdir"
@@ -32,7 +33,7 @@ RSpec.describe "Vxlan interactive apply" do
     JSON.parse(JSON.generate(observation.records.fetch(0)))
   end
 
-  def exercise(confirmation: true, tty: true, drift: false, fail_write: false, altered: false, persistence_failure: false, failed_readback: false, checkpoint_failure: false, batch: true, item: "test-change", bad_checksum: false, confirmation_item: nil, callbacks: 1, close_failure: false, reuse_readback: false)
+  def exercise(confirmation: true, tty: true, drift: false, fail_write: false, altered: false, persistence_failure: false, failed_readback: false, checkpoint_failure: false, batch: true, item: "test-change", bad_checksum: false, confirmation_item: nil, callbacks: 1, close_failure: false, reuse_readback: false, broken_error: false, interrupted_write: false)
     Dir.mktmpdir do |root|
       action = Vxlan::ChangePlan.build(change)
       commands, rollback = action.commands, action.rollback
@@ -46,6 +47,7 @@ RSpec.describe "Vxlan interactive apply" do
       token += " #{confirmation_item || item}" if batch
       input = tty ? terminal(confirmation ? "#{token}\n" : "no\n") : StringIO.new("#{token}\n")
       out, error = terminal, terminal
+      error.define_singleton_method(:puts) { |*| raise IOError, "private-diagnostic-failure" } if broken_error
       writes, connections = [], []
       before, after = config, failed_readback ? config : after_config
       session = Object.new
@@ -54,6 +56,7 @@ RSpec.describe "Vxlan interactive apply" do
       end
       session.define_singleton_method(:write) do |command|
         writes << command
+        raise Interrupt, "private-interruption-detail" if interrupted_write
         raise IOError, "private-error-detail" if fail_write
         true
       end
@@ -79,6 +82,40 @@ RSpec.describe "Vxlan interactive apply" do
       journals = Dir[File.join(root, "execution", "*", "execution.json")].map { |file| JSON.parse(File.read(file)) }
       { status: status, writes: writes, connections: connections, journals: journals, error: error.string }
     end
+  end
+
+  it "returns a preflight failure without connecting when stderr is unavailable" do
+    expect(exercise(tty: false, broken_error: true)).to include(status: 2, connections: [], writes: [], journals: [])
+  end
+
+  it "retains intent failure when journal recovery and stderr both fail" do
+    expect(exercise(persistence_failure: true, broken_error: true)).to include(status: 2, connections: [], writes: [], journals: [])
+  end
+
+  it "keeps a failed command uncertain without replay when stderr is unavailable" do
+    result = exercise(fail_write: true, broken_error: true)
+    expect(result[:status]).to eq(2)
+    expect(result[:writes].size).to eq(1)
+    expect(result[:journals].last).to include("status" => "uncertain", "pending_command" => 0, "steps" => [])
+  end
+
+  it "preserves cancellation and its journal when stderr is unavailable" do
+    result = exercise(interrupted_write: true, broken_error: true)
+    expect(result[:status]).to eq(130)
+    expect(result[:writes].size).to eq(1)
+    expect(result[:journals].last).to include("status" => "uncertain", "error" => "interrupted", "pending_command" => 0)
+  end
+
+  it "shows help without consuming input and rejects unexpected positional arguments" do
+    input, out, error = StringIO.new("unread\n"), StringIO.new, StringIO.new
+    connections = []
+    factory = ->(*) { connections << true }
+    cli = Vxlan::CLI::Apply.new(env: {}, discovery: { directories: [] }, input: input, out: out, error: error, connector_factory: factory)
+    expect(cli.run([ "--help" ])).to eq(0)
+    expect(out.string).to include("--plan", "--item")
+    expect(cli.run([ "--help", "unexpected" ])).to eq(2)
+    expect(input.pos).to eq(0)
+    expect(connections).to be_empty
   end
 
   it "rejects an oversized plan before confirmation or connection" do
