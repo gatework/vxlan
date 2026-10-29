@@ -12,7 +12,7 @@ RSpec.describe "Large VXLAN tables" do
         "Neighbor T AS PfxRcd Type-2 Type-3 Type-4 Type-5\n" +
         peers.each_with_index.map { |peer, index| "#{peer} I 65001 #{index} #{index} 0 0 0\n" }.reverse.join
     end.join
-    parser = Vxlan::RuntimeParser.new
+    parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
     observation = parser.parse(:bgp_neighbors, output, complete: true)
     expect(observation).to be_complete
     expect(observation.records.size).to eq(256)
@@ -33,7 +33,7 @@ RSpec.describe "Large VXLAN tables" do
     route = "8 0011.2233.4455 BGP #{hops.first} #{hops.first}\n"
     continuation = hops.reverse.map { |hop| "  #{hop} (Label: 100008), #{hop}\n" }.join
     output = header + route + continuation + "  malformed-hop\n  198.51.100.1\n" + header + "  198.51.100.2\n"
-    observation = Vxlan::RuntimeParser.new.parse(:l2route_macs, output, complete: true)
+    observation = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:l2route_macs, output, complete: true)
     expect(observation.status).to eq(:partial)
     expected = [ { address: hops.first } ] + hops.reverse.flat_map do |hop|
       [ { address: hop, label: 100_008 }, { address: hop } ]
@@ -47,7 +47,7 @@ RSpec.describe "Large VXLAN tables" do
     header = "Topology Mac Address Prod Next Hop (s)\n"
     prefix = "8 0011.2233.4455 BGP "
     values = hops.map { |hop| "#{hop} (Label: 100008)" }.join(", ")
-    parser = Vxlan::RuntimeParser.new
+    parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
     result = parser.parse(:l2route_macs, header + prefix + values + "\n", complete: true)
     expect(result).to be_complete
     expect(result.records.first[:next_hops]).to eq(hops.map { |hop| { address: hop, label: 100_008 } })

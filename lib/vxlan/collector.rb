@@ -85,7 +85,7 @@ module Vxlan
         :failed
       end
       observations[:collection] ||= Observation.new(name: :collection, status: status, completed_at: @clock.call)
-      Snapshot.new(target: target, fabric_key: fabric_key, dimensions: observations, observed_at: @clock.call)
+      Snapshot.new(target: target, fabric_key: fabric_key, observations: observations, observed_at: @clock.call)
     end
 
     # 采集设备回显前，禁用分页并归一化终端宽度。

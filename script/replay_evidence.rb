@@ -26,7 +26,7 @@ results = names.flat_map do |name|
     framed = first == command && /\A(?:[^\s#<>\x00-\x1f\x7f]+#|<[^\s#<>\x00-\x1f\x7f]+>)\z/.match?(last.to_s)
     abort "Unverified command framing: #{Digest::SHA256.hexdigest(raw)}" unless framed
     body = lines[1...-1].join
-    observation = Vxlan::RuntimeParser.new.parse(name, body, complete: true)
+    observation = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(name, body, complete: true)
     { raw_sha256: Digest::SHA256.hexdigest(raw), input_sha256: Digest::SHA256.hexdigest(body),
       command: command, dimension: name, framing: "exact_command_and_prompt_removed", bytes: body.bytesize,
       status: observation.status, records: observation.records.size,

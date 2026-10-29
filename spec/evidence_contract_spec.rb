@@ -9,7 +9,7 @@ RSpec.describe "VXLAN evidence contracts" do
   let(:body) { File.binread(File.join(root, "bgp_summary.txt")) }
 
   it "allows unlisted route types but includes Type-12 in the upper bound when present" do
-    parser = Vxlan::RuntimeParser.new
+    parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
     fewer = body.sub("3249 1864 693 0 692", "3249 1864 693 0 691")
     expect(parser.parse(:bgp_neighbors, fewer, complete: true)).to be_complete
     with_type12 = body.sub("Type-5\n", "Type-5 Type-12\n").lines("\n").map do |line|
@@ -34,13 +34,13 @@ RSpec.describe "VXLAN evidence contracts" do
     JSON.parse(File.read(File.join(root, "manifest.json"))).fetch("cases").each do |entry|
       input = File.binread(File.join(root, entry.fetch("file")))
       expect(Digest::SHA256.hexdigest(input)).to eq(entry.fetch("sha256"))
-      actual = Vxlan::RuntimeParser.new.parse(:bgp_neighbors, input, complete: true)
+      actual = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:bgp_neighbors, input, complete: true)
       expect(JSON.parse(JSON.generate(actual.to_h.slice(:status, :records, :issues)))).to eq(entry.fetch("expected"))
     end
   end
 
   it "does not accept route-type counts exceeding the independently reported total" do
-    result = Vxlan::RuntimeParser.new.parse(:bgp_neighbors, body.sub("3249 1864 693 0 692", "3249 4000 693 0 692"), complete: true)
+    result = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:bgp_neighbors, body.sub("3249 1864 693 0 692", "3249 4000 693 0 692"), complete: true)
     expect(result.status).to eq(:partial)
     expect(result.issues).to include(include(code: :inconsistent_prefix_statistics))
     expect(result.records.first).not_to have_key(:prefixes_by_type)
@@ -59,7 +59,7 @@ RSpec.describe "VXLAN evidence contracts" do
   end
 
   it "cannot gain completeness by removing an advertised statistics row or the transport assertion" do
-    parser = Vxlan::RuntimeParser.new
+    parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
     expect(parser.parse(:bgp_neighbors, body, complete: false).status).to eq(:partial)
     missing = body.lines("\n").reject { |line| line.start_with?("192.0.2.2 I ") }.join
     expect(parser.parse(:bgp_neighbors, missing, complete: true).status).to eq(:partial)

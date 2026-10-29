@@ -45,7 +45,7 @@ output = <<~CLI
   Neighbor ID Pri State Up Time Address Interface
   192.0.2.2 1 FULL/ - 1d 192.0.2.3 Eth1/1
 CLI
-observation = Vxlan::RuntimeParser.new.parse(:ospf_neighbors, output, complete: true)
+observation = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:ospf_neighbors, output, complete: true)
 puts "OSPF parse status: #{observation.status}"
 puts "Neighbors: #{observation.records.size}"
 observation.records.each { |record| p record }
@@ -142,3 +142,10 @@ Review output follows the net-connector topology layout: `summary.txt`, `summary
 Apply returns `2` on failure and `130` on interruption even if stderr cannot accept diagnostics. Existing execution journals retain uncertain device effects; commands are never replayed automatically. Unexpected positional arguments are rejected, including after `--help`.
 
 Offline review requires `snapshot.target.host` to match the canonical device host. Reports without target identity must be collected again; the unbound legacy format is no longer accepted.
+
+
+## API migration
+
+`RuntimeParser.new(platform:, model: nil)` fixes the platform for `parse(name, text, complete: false, command: nil)` and `parse_many(names, text, complete: false, command: nil)`. Snapshots use `observations:` and expose `observations` / `observation(name)`; the old Ruby `dimensions` member and Wireless `dimension` accessor are removed. Known missing dimensions return `not_requested`; unknown names raise `ArgumentError`. Persisted JSON keeps its `dimensions` field.
+
+Dynamic inventory uses `Netdisco::Catalog`. Any duplicate row for a selected address, including another platform, prevents connection; excluded conflicts retain safe diagnostics. `NC_<PLATFORM>_ENABLE_PASSWORD` takes precedence over `NC_ENABLE_PASSWORD`.

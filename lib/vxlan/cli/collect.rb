@@ -34,17 +34,27 @@ module Vxlan
       def load_network
         require "net/connector"
       rescue LoadError
-        raise LoadError, "Online collection requires net-connector >= 0.18.0; add it to the host Gemfile or run gem install net-connector", cause: nil
+        raise LoadError, "Online collection requires net-connector >= 0.19.0; add it to the host Gemfile or run gem install net-connector", cause: nil
       end
 
-      # YAML 静态设备或显式 Netdisco 来源二选一；所有重复地址在连接前拒绝。
+      # YAML 静态设备或显式 Netdisco 来源二选一；选中地址的所有冲突记录在连接前拒绝。
       def inventory(options, progress:)
         values = options.values
+        selection = Net::Connector::Inventory::Filters.selection(values)
         rows = if options.dynamic_inventory?
           progress.reading_inventory
           settings = options.netdisco_settings
-          Net::Connector::Netdisco::Fleet.new(settings: settings).devices.filter_map do |device|
-            next unless device.ready? && device.vendor == :cisco_nxos
+          policy = settings.snapshot(mode: :inventory)
+          devices = Net::Connector::Netdisco::Catalog.new(settings: settings).devices(policy: policy)
+          devices.filter_map(&:issue).tally.each { |code, count| progress.notice("Inventory: #{code}=#{count}") }
+          devices.filter_map do |device|
+            next unless device.vendor == :cisco_nxos
+            platform = "cisco_nxos"
+            if device.issue == :duplicate_host && policy.rules.selected?(device.host, device.vendor, name: device.name, model: device.model) &&
+                selection.selected?(device.host, platform, name: device.name || device.host, model: device.model)
+              raise CtxCli::Collection::Error, "Duplicate management address in selected inventory"
+            end
+            next unless device.ready?
             { "host" => device.host, "name" => device.name || device.host, "model" => device.model }
           end
         else
@@ -52,7 +62,6 @@ module Vxlan
         end
         targets = options.normalize_devices(rows)
         total = targets.size
-        selection = Net::Connector::Inventory::Filters.selection(values)
         selected = targets.select do |device|
           selection.selected?(device.fetch("host"), "cisco_nxos", name: device["name"], model: device["model"])
         end
@@ -86,16 +95,10 @@ module Vxlan
 
       # 缺失用户名时不尝试连接；密码允许省略以支持明确的 SSH key/agent。
       def credentials!(options)
-        username = secret(options, "NC_CISCO_NXOS_USERNAME") || secret(options, "NC_DEVICE_USERNAME")
-        raise CtxCli::Collection::Error, "Set NC_DEVICE_USERNAME or NC_CISCO_NXOS_USERNAME; provide a password through the environment or use an SSH key/agent" unless username
-        options.values.fetch("ssh").transform_keys(&:to_sym).merge(username: username,
-          password: secret(options, "NC_CISCO_NXOS_PASSWORD") || secret(options, "NC_DEVICE_PASSWORD"), enable_password: secret(options, "NC_ENABLE_PASSWORD"))
-      end
-
-      # 空白环境值视为缺失，不修改或回显凭据。
-      def secret(options, name)
-        value = options.environment[name]
-        value unless value.nil? || value.strip.empty?
+        require "net/connector/credentials"
+        credentials = Net::Connector::Credentials.new(env: options.environment).resolve(platform: :cisco_nxos)
+        raise CtxCli::Collection::Error, "Set NC_DEVICE_USERNAME or platform NC_*_USERNAME; provide a password through the environment or use an SSH key/agent" unless credentials
+        options.values.fetch("ssh").transform_keys(&:to_sym).merge(credentials)
       end
 
       # 每个任务使用独立 Collector 和会话；公共执行器负责有界并发和线程回收。
@@ -114,7 +117,7 @@ module Vxlan
         snapshot
       end
 
-      private :load_network, :credentials!, :secret
+      private :load_network, :credentials!
     end
   end
 end

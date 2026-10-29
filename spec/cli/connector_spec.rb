@@ -40,8 +40,8 @@ RSpec.describe Vxlan::CLI::Connector do
     end
     snapshot = Vxlan::Collector.new.collect(connector: connector, target: { host: "192.0.2.10" }, fabric_key: "LAB", dimensions: %i[vpc configuration])
     expect(snapshot).to be_complete
-    expect(snapshot.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
-    expect(snapshot.dimensions.fetch(:vpc).issues).to eq([ { code: :vpc_not_configured } ])
+    expect(snapshot.observations.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+    expect(snapshot.observations.fetch(:vpc).issues).to eq([ { code: :vpc_not_configured } ])
     expect(native).not_to be_connected
     expect(native).to have_received(:with_operation).with(:vxlan).once
   end
@@ -81,8 +81,8 @@ RSpec.describe Vxlan::CLI::Connector do
         end
       end
       snapshot = Vxlan::Collector.new.collect(connector: connector, target: {}, fabric_key: "LAB", dimensions: [ :configuration ])
-      expect(snapshot.dimensions.fetch(:configuration)).to be_complete
-      expect(snapshot.dimensions.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
+      expect(snapshot.observations.fetch(:configuration)).to be_complete
+      expect(snapshot.observations.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
       expect(native).not_to be_connected
       expect(snapshot.inspect).not_to include("private-finalization-detail", "hostname LEAF")
     end

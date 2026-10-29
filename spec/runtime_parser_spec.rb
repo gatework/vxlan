@@ -6,7 +6,7 @@ require "vxlan/collector"
 require "vxlan/runtime_parser"
 
 RSpec.describe Vxlan::RuntimeParser do
-  subject(:parser) { described_class.new }
+  subject(:parser) { described_class.new(platform: :cisco_nxos) }
 
   def parse(name, text, complete: true)
     parser.parse(name, text, complete: complete)

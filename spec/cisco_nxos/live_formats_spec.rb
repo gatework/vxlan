@@ -3,7 +3,7 @@
 require_relative "../spec_helper"
 
 RSpec.describe "NX-OS live table formats" do
-  let(:parser) { Vxlan::RuntimeParser.new }
+  let(:parser) { Vxlan::RuntimeParser.new(platform: :cisco_nxos) }
 
   it "reads declared BGP route types without requiring a duplicated total column" do
     text = "BGP summary information for VRF default, address family L2VPN EVPN\n" \

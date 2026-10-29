@@ -26,7 +26,7 @@ end
   bgp << peers.map { |peer| "#{peer} 4 65001 0 0 0 0 0 1d 1\n" }.join
   bgp << "Neighbor T AS PfxRcd Type-2 Type-3 Type-4 Type-5\n"
   bgp << peers.map { |peer| "#{peer} I 65001 1 1 0 0 0\n" }.join
-  parser = Vxlan::RuntimeParser.new
+  parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
   stats = measure(expected: [ :complete, count ]) do
     result = parser.parse(:bgp_neighbors, bgp, complete: true)
     [ result.status, result.records.size ]

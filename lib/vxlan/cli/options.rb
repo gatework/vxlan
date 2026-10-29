@@ -6,7 +6,7 @@ require "optparse"
 require "ctx_cli/options"
 require "ctx_cli/terminal"
 require "ctx_cli/initializer"
-gem "net-connector", "~> 0.18.0"
+gem "net-connector", "~> 0.19.0"
 require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
@@ -67,7 +67,7 @@ module Vxlan
         @environment = @files.environment
         @config, @env_file = @files.config, @files.env_file
       rescue LoadError
-        raise LoadError, "Collection configuration requires net-connector >= 0.18.0; reading .env also requires dotenv", cause: nil
+        raise LoadError, "Collection configuration requires net-connector >= 0.19.0; reading .env also requires dotenv", cause: nil
       end
 
       # 公共与专用文件先合并，进程值和 CLI 最后覆盖；数组不追加设备。

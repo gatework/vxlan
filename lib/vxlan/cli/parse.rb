@@ -37,7 +37,7 @@ module Vxlan
         observation = if options[:dimension] == :configuration
           Vxlan::Config.new(model: options[:model]).parse(body, complete: options[:complete])
         else
-          Vxlan::RuntimeParser.new(model: options[:model]).parse(options[:dimension], body, complete: options[:complete])
+          Vxlan::RuntimeParser.new(platform: :cisco_nxos, model: options[:model]).parse(options[:dimension], body, complete: options[:complete])
         end
         if options[:json]
           @output.json(observation.to_h)

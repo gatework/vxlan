@@ -9,7 +9,7 @@ output = <<~CLI
   Neighbor ID Pri State Up Time Address Interface
   192.0.2.2 1 FULL/ - 1d 192.0.2.3 Eth1/1
 CLI
-observation = Vxlan::RuntimeParser.new.parse(:ospf_neighbors, output, complete: true)
+observation = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:ospf_neighbors, output, complete: true)
 puts "OSPF parse status: #{observation.status}"
 puts "Neighbors: #{observation.records.size}"
 observation.records.each { |record| p record }

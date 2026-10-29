@@ -13,7 +13,7 @@ RSpec.describe "Host record separators" do
         vpc: "vPC domain id : 7\nPeer status : peer adjacency formed ok\nvPC keep-alive status : peer is alive\nConfiguration consistency status : success\nid Port Status Active vlans\n1 Po100 up 110,  120\n",
         l2route_macs: "Topology Mac Address Prod Next-Hops\n100 0011.2233.4455 BGP 192.0.2.2\n"
       }
-      parser = Vxlan::RuntimeParser.new
+      parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
       expected = samples.transform_values.with_index do |text, index|
         observation = parser.parse(samples.keys[index], text, complete: true)
         raise "Missing baseline records" unless observation.complete? && observation.records.one?

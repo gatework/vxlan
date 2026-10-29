@@ -21,7 +21,7 @@ RSpec.describe Vxlan::Collector do
       body = outputs.fetch(commands.first)
       raise body if body.is_a?(Exception)
 
-      double("Command receipt", output: "#{commands.first}\n#{body}LEAF#", success?: true, steps: [ Object.new ], value!: body)
+      double("Command receipt", output: "#{commands.first}\n#{body}LEAF#", success?: true, steps: [ { command: commands.first } ], value!: body)
     end
   end
 
@@ -37,7 +37,7 @@ RSpec.describe Vxlan::Collector do
 
     expect(result).to be_complete
     expect(result.target).to eq(key: "fixture:leaf", host: +"192.0.2.10")
-    observation = result.dimensions.fetch(:configuration)
+    observation = result.observations.fetch(:configuration)
     expect(observation.records.first[:hostname]).to eq("LEAF")
     expect(observation.evidence.first).to include(command: "show running-config", sha256: a_string_matching(/\A[0-9a-f]{64}\z/))
     expect(observation.evidence.inspect).not_to include("hostname LEAF")
@@ -47,10 +47,10 @@ RSpec.describe Vxlan::Collector do
     outputs["show port-channel summary"] = IOError.new("private transport detail")
     result = collect(:port_channels, :configuration)
 
-    expect(result.dimensions.fetch(:port_channels).status).to eq(:failed)
-    expect(result.dimensions.fetch(:configuration)).to be_complete
-    expect(result.dimensions.fetch(:collection).status).to eq(:partial)
-    expect(result.dimensions.fetch(:port_channels).issues.inspect).not_to include("private transport detail")
+    expect(result.observations.fetch(:port_channels).status).to eq(:failed)
+    expect(result.observations.fetch(:configuration)).to be_complete
+    expect(result.observations.fetch(:collection).status).to eq(:partial)
+    expect(result.observations.fetch(:port_channels).issues.inspect).not_to include("private transport detail")
   end
 
   it "owns identity and dimension selection before invoking connection callbacks" do
@@ -67,7 +67,7 @@ RSpec.describe Vxlan::Collector do
     expect(result).to be_complete
     expect(result.target[:host]).to eq("192.0.2.10")
     expect(result.fabric_key).to eq("LAB")
-    expect(result.dimensions.keys).to contain_exactly(:configuration, :port_channels, :collection)
+    expect(result.observations.keys).to contain_exactly(:configuration, :port_channels, :collection)
     expect(session).to have_received(:send_commands).with([ "show port-channel summary" ])
     expect(target[:host]).to eq("198.51.100.99")
   end
@@ -78,8 +78,8 @@ RSpec.describe Vxlan::Collector do
     result = collect(:configuration, :vpc, :port_channels)
 
     expect(result).to be_complete
-    expect(result.dimensions.fetch(:vpc).issues).to eq([ { code: :vpc_not_configured } ])
-    expect(result.dimensions.fetch(:port_channels).issues).to eq([ { code: :port_channels_not_configured } ])
+    expect(result.observations.fetch(:vpc).issues).to eq([ { code: :vpc_not_configured } ])
+    expect(result.observations.fetch(:port_channels).issues).to eq([ { code: :port_channels_not_configured } ])
   end
 
   it "retains acquired facts when closing the injected session fails" do
@@ -89,8 +89,8 @@ RSpec.describe Vxlan::Collector do
     end
     result = collect(:configuration)
 
-    expect(result.dimensions.fetch(:configuration)).to be_complete
-    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
+    expect(result.observations.fetch(:configuration)).to be_complete
+    expect(result.observations.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
   end
 
   it "retains the first observations without replaying when a connector yields again" do
@@ -101,8 +101,8 @@ RSpec.describe Vxlan::Collector do
     end
     result = collect(:configuration)
     expect(session).to have_received(:send_commands).with([ "show running-config" ]).once
-    expect(result.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
-    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_reentered } ])
+    expect(result.observations.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+    expect(result.observations.fetch(:collection).issues).to eq([ { code: :session_reentered } ])
     expect(result).not_to be_complete
   end
 
@@ -118,17 +118,17 @@ RSpec.describe Vxlan::Collector do
     allow(connector).to receive(:open).and_raise(IOError, "private login detail")
     expect(session).not_to receive(:send_commands)
     result = collect(:configuration, :nve_peers)
-    expect(result.dimensions.values.map(&:status)).to eq([ :failed, :failed, :failed ])
-    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :connection_failed } ])
+    expect(result.observations.values.map(&:status)).to eq([ :failed, :failed, :failed ])
+    expect(result.observations.fetch(:collection).issues).to eq([ { code: :connection_failed } ])
   end
 
   it "never marks an unyielded session as complete or omits requested dimensions" do
     allow(connector).to receive(:open).and_return(nil)
     result = collect(:configuration, :nve_peers)
     expect(result).not_to be_complete
-    expect(result.dimensions.keys).to eq(%i[configuration nve_peers collection])
-    expect(result.dimensions.values.map(&:status)).to eq([ :failed, :failed, :failed ])
-    expect(result.dimensions.fetch(:collection).issues).to eq([ { code: :session_not_opened } ])
+    expect(result.observations.keys).to eq(%i[configuration nve_peers collection])
+    expect(result.observations.values.map(&:status)).to eq([ :failed, :failed, :failed ])
+    expect(result.observations.fetch(:collection).issues).to eq([ { code: :session_not_opened } ])
   end
 
   it "does not replay a query or submit remaining dimensions after disconnect" do
@@ -137,12 +137,12 @@ RSpec.describe Vxlan::Collector do
         allow(session).to receive(:connected?).and_return(false)
         raise IOError, "private disconnect detail"
       end
-      double("preparation", output: "LEAF#", success?: true, steps: [ Object.new ], value!: "")
+      double("preparation", output: "LEAF#", success?: true, steps: [ { command: commands.first } ], value!: "")
     end
     result = collect(:configuration, :nve_peers)
     expect(session).to have_received(:send_commands).with([ "show running-config" ]).once
     expect(session).not_to have_received(:send_commands).with([ "show nve peers" ])
-    expect(result.dimensions.fetch(:nve_peers).issues.first).to include(skipped: true)
+    expect(result.observations.fetch(:nve_peers).issues.first).to include(skipped: true)
     expect(result).not_to be_complete
   end
 
@@ -157,7 +157,7 @@ RSpec.describe Vxlan::Collector do
     expect(session).not_to receive(:close)
     result = collector.collect_session(session: session, target: target, fabric_key: "LAB", dimensions: [ :configuration ])
     expect(result).to be_complete
-    expect(result.dimensions.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
+    expect(result.observations.fetch(:configuration).records.first[:hostname]).to eq("LEAF")
   end
 
   it "collects configuration first when dependent dimensions were requested in another order" do
@@ -165,7 +165,7 @@ RSpec.describe Vxlan::Collector do
     expect(session).not_to receive(:send_commands).with([ "show vpc brief" ])
     result = collector.collect_session(session: session, target: target, fabric_key: "LAB", dimensions: %i[vpc port_channels configuration])
     expect(result).to be_complete
-    expect(result.dimensions.keys).to eq(%i[vpc port_channels configuration collection])
+    expect(result.observations.keys).to eq(%i[vpc port_channels configuration collection])
   end
 
   it "validates borrowed requests before sending any commands" do

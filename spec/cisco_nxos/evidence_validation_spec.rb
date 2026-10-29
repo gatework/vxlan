@@ -4,7 +4,7 @@ require_relative "../spec_helper"
 
 RSpec.describe "NX-OS runtime evidence validation" do
   def cdp(declarations)
-    Vxlan::RuntimeParser.new.parse(:cdp_neighbors, "Device ID: LAB\n#{declarations}\n" \
+    Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:cdp_neighbors, "Device ID: LAB\n#{declarations}\n" \
       "Interface: Ethernet1/1, Port ID (outgoing port): Ethernet1/2\nTotal entries displayed: 1\n", complete: true)
   end
 
@@ -38,7 +38,7 @@ RSpec.describe "NX-OS runtime evidence validation" do
   end
 
   it "excludes conflicting CDP interfaces without dropping independent neighbors or poisoning a later parse" do
-    parser = Vxlan::RuntimeParser.new
+    parser = Vxlan::RuntimeParser.new(platform: :cisco_nxos)
     valid = "Device ID: NEXT\nInterface: Ethernet1/3, Port ID (outgoing port): Ethernet1/4\n"
     conflict = "Device ID: LAB\nInterface: Ethernet1/1, Port ID (outgoing port): Ethernet1/2\n" \
       "Interface: Ethernet1/9, Port ID (outgoing port): Ethernet1/2\n" \
@@ -50,7 +50,7 @@ RSpec.describe "NX-OS runtime evidence validation" do
   end
 
   def nve(group)
-    Vxlan::RuntimeParser.new.parse(:nve_vnis, "Interface VNI Multicast-group State Mode Type [BD/VRF] Flags\n" \
+    Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:nve_vnis, "Interface VNI Multicast-group State Mode Type [BD/VRF] Flags\n" \
       "nve1 10110 #{group} Up CP L2 [110] SA\n", complete: true)
   end
 

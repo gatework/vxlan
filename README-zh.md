@@ -45,7 +45,7 @@ output = <<~CLI
   Neighbor ID Pri State Up Time Address Interface
   192.0.2.2 1 FULL/ - 1d 192.0.2.3 Eth1/1
 CLI
-observation = Vxlan::RuntimeParser.new.parse(:ospf_neighbors, output, complete: true)
+observation = Vxlan::RuntimeParser.new(platform: :cisco_nxos).parse(:ospf_neighbors, output, complete: true)
 puts "OSPF parse status: #{observation.status}"
 puts "Neighbors: #{observation.records.size}"
 observation.records.each { |record| p record }
@@ -136,3 +136,10 @@ MIT，见 [LICENSE](LICENSE)。
 `vxlan collect` 默认输出逐设备诊断，使用 `--scripts` 可选导出配置建议；`vxlan review --batch DIR` 可离线补生成既有报告的候选配置、条件回退和只读验收命令。导出不会执行变更；独立 `apply --plan FILE --item ID` 必须在真实终端明确确认，配置漂移或失败即停止。详见[修复建议说明](docs/remediation.md)。 业务分层、会话所有权与执行边界见[架构说明](docs/architecture-zh.md)。
 
 报告阅读顺序与 net-connector topology 一致：`summary.txt` → `devices/*.txt` → `scripts/*.cfg`。不生成 Markdown 报告。所有可执行增量汇总于带 SHA256 校验的 `plan.json`，通过 `vxlan apply --plan plan.json --item ID` 选择一项并交互确认。
+
+
+## API 迁移
+
+`RuntimeParser.new(platform:, model: nil)` 固定解析平台；`parse(name, text, complete: false, command: nil)` 与 `parse_many(names, text, complete: false, command: nil)` 返回领域 Observation。`Snapshot.new(observations: ...)`、`#observations`、`#observation(name)` 是统一 Ruby API，旧 `dimensions` 成员及 Wireless `dimension` 入口已移除。已知未请求维度返回 `not_requested`，未知名称抛出 `ArgumentError`；持久化 JSON 仍保留 `dimensions` 字段。
+
+动态清单使用 `Netdisco::Catalog`；选中地址的任何重复记录（包括另一平台）都会阻止连接。范围外冲突只输出安全诊断。平台 `NC_<PLATFORM>_ENABLE_PASSWORD` 优先于 `NC_ENABLE_PASSWORD`。

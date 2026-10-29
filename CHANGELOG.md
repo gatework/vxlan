@@ -4,6 +4,10 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.6.0 (2026-10-29)
+
+- Require RuntimeParser platform at construction and add parse_many. Rename Snapshot Ruby members to observations/observation while retaining dimensions in persisted reports. Use Catalog and shared Credentials in CLI; reject selected duplicate addresses across platforms before connecting.
+
 ## 0.5.1 (2026-10-24)
 
 - Validate EVPN configured-peer totals within each VRF and address-family block, retain administrative shutdown and unknown AS identities, and preserve state-valued prefix totals.
