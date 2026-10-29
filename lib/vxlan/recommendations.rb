@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "ctx_runner/evidence"
 require_relative "cisco_nxos/profile"
 require_relative "config/evidence"
 
@@ -35,7 +36,7 @@ module Vxlan
     # 输入为报告 JSON 的字符串键结构，离线与实时报告共用此边界。
     def initialize(document)
       @document = document
-      @dimensions = document.dig("snapshot", "dimensions") || {}
+      @dimensions = document.dig("snapshot", "observations") || {}
     end
 
     # 建议与采集完整性分开；没有命中规则并不代表网络健康。
@@ -47,7 +48,7 @@ module Vxlan
         items.concat(undefined_acl_items(config))
       end
       items.concat(runtime_tasks)
-      { schema_version: 1, review_only: true, health_assessment: "not_performed", device: @document["device"],
+      { schema_version: CtxRunner::Evidence::VERSION, kind: "recommendations", review_only: true, health_assessment: "not_performed", device: @document["device"],
         observed_at: @document.dig("snapshot", "observed_at"), items: items, counts: items.map { |item| item[:status] }.tally }
     end
 

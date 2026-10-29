@@ -21,6 +21,7 @@ module Vxlan
 
     # 通过调用方持有的连接器顺序采集请求维度。
     def collect(connector:, target:, fabric_key:, model: nil, dimensions: COMMANDS.keys)
+      target = CtxRunner::Target.snapshot(target)
       target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, connector.platform, model)
 
       observations = {}
@@ -29,9 +30,8 @@ module Vxlan
       if collection.failure
         code = collection.failure.fetch(:code)
         dimensions.each { |name| observations[name] ||= failure(name, code) }
-        observations[:collection] = failure(:collection, code)
       end
-      snapshot(target, fabric_key, observations)
+      snapshot(target, fabric_key, observations, issues: collection.failure ? [ collection.failure ] : [])
     end
 
     # 借用已打开的会话；调用方负责连接和关闭，本方法不重连、不提权。
@@ -44,7 +44,10 @@ module Vxlan
 
     # 连接前固定请求数据，生命周期入口和借用会话入口共用相同校验。
     def request(target, fabric_key, dimensions, platform, model)
-      raise ArgumentError, "Target must be a hash" unless target.is_a?(Hash)
+      target = CtxRunner::Target.snapshot(target)
+      unless fabric_key.is_a?(String) && !fabric_key.strip.empty? && !/[\x00-\x1f\x7f]/.match?(fabric_key)
+        raise ArgumentError, "Fabric identity must be nonempty text"
+      end
       unless dimensions.is_a?(Array) && dimensions.any? && dimensions.uniq == dimensions && (dimensions - COMMANDS.keys).empty?
         raise ArgumentError, "Unknown or duplicate VXLAN dimensions"
       end
@@ -60,7 +63,6 @@ module Vxlan
       reader = CtxDriver::Reader.new(session: session, clock: @clock)
       if (code = prepare_terminal(reader))
         dimensions.each { |name| observations[name] = failure(name, code) }
-        observations[:collection] = failure(:collection, code)
         return observations
       end
       ordered = dimensions.include?(:configuration) ? [ :configuration, *dimensions.reject { |name| name == :configuration } ] : dimensions
@@ -76,16 +78,8 @@ module Vxlan
     end
 
     # 汇总证据完整性，不将查询成功解释为 Fabric 健康。
-    def snapshot(target, fabric_key, observations)
-      status = if observations.values.all?(&:complete?)
-        :complete
-      elsif observations.values.any? { |value| %i[complete partial].include?(value.status) }
-        :partial
-      else
-        :failed
-      end
-      observations[:collection] ||= Observation.new(name: :collection, status: status, completed_at: @clock.call)
-      Snapshot.new(target: target, fabric_key: fabric_key, observations: observations, observed_at: @clock.call)
+    def snapshot(target, fabric_key, observations, issues: [])
+      Snapshot.new(target: target, fabric_key: fabric_key, observations: observations, observed_at: @clock.call, issues: issues)
     end
 
     # 采集设备回显前，禁用分页并归一化终端宽度。

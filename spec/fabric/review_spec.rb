@@ -5,7 +5,7 @@ require "json"
 
 RSpec.describe "Fabric business consistency" do
   def leaf(host, acl: "protect", address: "192.0.2.254/24", vni: 10008)
-    { "device" => { "host" => host, "name" => host }, "snapshot" => { "dimensions" => {
+    { "device" => { "host" => host, "name" => host }, "snapshot" => { "observations" => {
       "configuration" => { "status" => "complete", "records" => [ {
         "review_status" => "complete", "vlan_vnis" => { "8" => vni }, "interfaces" => { "Vlan8" => { "addresses" => address ? [ address ] : [], "vrf" => "tenant", "anycast" => true, "shutdown" => false, "mtu" => 9216, "acl_bindings" => acl ? { "out" => acl } : {} } },
         "acls" => { "protect" => [ { "sequence" => 10, "action" => "deny", "expression" => "ip any 192.0.2.0/24" }, { "sequence" => 20, "action" => "permit", "expression" => "ip any any" } ] },
@@ -22,7 +22,7 @@ RSpec.describe "Fabric business consistency" do
   it "compares address groups only across referencing hosts and retains missing definitions in host order" do
     documents = %w[192.0.2.1 192.0.2.2 192.0.2.3].map { |host| leaf(host, acl: nil) }
     documents.each_with_index do |document, index|
-      config = document["snapshot"]["dimensions"]["configuration"]["records"][0]
+      config = document["snapshot"]["observations"]["configuration"]["records"][0]
       expression = index == 2 ? "ip any any" : "ip addrgroup admins addrgroup admins"
       config["acls"]["protect"][0]["expression"] = expression
       config["address_groups"] = index == 1 ? {} : { "admins" => [ "192.0.2.0/24" ] }
@@ -38,7 +38,7 @@ RSpec.describe "Fabric business consistency" do
 
   def gateway_leaves(count)
     [ leaf("192.0.2.1"), leaf("192.0.2.2", address: nil) ].each_with_index.map do |document, host_index|
-      config = document["snapshot"]["dimensions"]["configuration"]["records"][0]
+      config = document["snapshot"]["observations"]["configuration"]["records"][0]
       svi = config["interfaces"].fetch("Vlan8")
       config["vlan_vnis"], config["interfaces"], config["nve"]["members"], config["evpn"] = {}, {}, {}, {}
       count.times do |index|
@@ -57,20 +57,20 @@ RSpec.describe "Fabric business consistency" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
     reviewer = Vxlan::Fabric::Review.new([ a, b ], { "fabrics" => { "test" => { "leaves" => %w[192.0.2.1 192.0.2.2] } } })
     expect(reviewer.call[:findings]).to be_empty
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
     expect(reviewer.call[:findings]).to include(include(code: "fabric_acl_content"))
   end
 
   it "compares local VLAN mappings for a shared L2-only VNI without gateways" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    [ a, b ].each { |d| d["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"] = {} }
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"] = { "9" => 10008 }
+    [ a, b ].each { |d| d["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"] = {} }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"] = { "9" => 10008 }
     expect(audit(a, b)[:findings]).to include(include(code: "fabric_vlan_mapping", vni: 10008))
   end
 
   it "reports ambiguous VLAN mappings even when only one leaf deploys the VNI" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", vni: 10009, address: "198.51.100.254/24")
-    a["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["9"] = 10008
+    a["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["9"] = 10008
     expect(audit(a, b)[:findings]).to include(include(code: "fabric_vlan_mapping_ambiguous", vni: 10008))
   end
 
@@ -91,14 +91,14 @@ RSpec.describe "Fabric business consistency" do
     a = leaf("192.0.2.1")
     b = leaf("192.0.2.2", address: "192.0.2.129/25")
     c = leaf("192.0.2.3", vni: 10009)
-    c["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["vrf"] = "other"
+    c["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["vrf"] = "other"
     expect(audit(a, b, c)[:findings]).not_to include(include(code: "fabric_subnet_vni_conflict"))
   end
 
   it "does not derive changes from partial or missing configuration review evidence" do
     [ "partial", nil ].each do |status|
       a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
-      a["snapshot"]["dimensions"]["configuration"]["records"][0]["review_status"] = status
+      a["snapshot"]["observations"]["configuration"]["records"][0]["review_status"] = status
       result = audit(a, b)
       expect(result[:findings]).to include(include(code: "fabric_evidence_incomplete"))
       expect(result[:device_items].values.flatten).to be_empty
@@ -108,9 +108,9 @@ RSpec.describe "Fabric business consistency" do
   it "retains differing ACL rules when both definitions have unknown dependencies" do
     a, b = leaf("192.0.2.1", acl: nil), leaf("192.0.2.2", acl: nil)
     [ a, b ].each do |d|
-      d["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"]["protect"][0]["expression"] = "ip addrgroup unknown any"
+      d["snapshot"]["observations"]["configuration"]["records"][0]["acls"]["protect"][0]["expression"] = "ip addrgroup unknown any"
     end
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_acl_content"), include(code: "fabric_acl_dependency"))
     expect(result[:device_items].values.flatten).to be_empty
@@ -127,11 +127,11 @@ RSpec.describe "Fabric business consistency" do
           periodic #{period} 09:00:00 to 17:00:00
       CONFIG
       expect(parsed).to be_complete
-      document["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"] = JSON.parse(JSON.generate(parsed.records.first[:acls]))
+      document["snapshot"]["observations"]["configuration"]["records"][0]["acls"] = JSON.parse(JSON.generate(parsed.records.first[:acls]))
     end
     expect(audit(*documents)[:findings]).to include(include(code: "fabric_acl_dependency"))
 
-    documents.last["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["acl_bindings"].clear
+    documents.last["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["acl_bindings"].clear
     result = audit(*documents)
     expect(result[:findings]).to include(include(code: "fabric_acl_dependency"))
     expect(result[:device_items]["192.0.2.2"]).to include(include(code: "fabric_acl_binding", status: "blocked", commands: []))
@@ -156,7 +156,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "keeps a partially deployed VNI visible even when its local VLAN mapping is missing" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"] = {}
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"] = {}
     result = audit(a, b)
     expect(result[:coverage]).to include(include(vni: 10008, deployed: %w[192.0.2.1 192.0.2.2], incomplete: [ "192.0.2.2" ]))
     expect(result[:findings]).to include(include(code: "fabric_service_incomplete"))
@@ -165,7 +165,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "proposes an existing unmapped VLAN only when its SVI and transport match the deployed peer business" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
     item = audit(a, b)[:device_items]["192.0.2.2"].find { |advice| advice[:code] == "fabric_vlan_mapping_missing" }
     expect(item).to include(status: "candidate", commands: [ "configure terminal", "vlan 8", "  vn-segment 10008", "end" ])
     expect(item[:change]).to include("kind" => "vlan_vni_add", "vlan" => 8, "vni" => 10008)
@@ -173,21 +173,21 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not infer a VLAN mapping from matching numbers when gateway facts disagree" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: "198.51.100.254/24")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
     result = audit(a, b)
     expect(result[:device_items]["192.0.2.2"]).to include(include(code: "fabric_vlan_mapping_missing", status: "blocked", commands: []))
   end
 
   it "does not ignore an incomplete conflicting peer when inferring a missing mapping" do
     a, b, c = leaf("192.0.2.1"), leaf("192.0.2.2"), leaf("192.0.2.3", address: "198.51.100.254/24")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
-    c["snapshot"]["dimensions"]["configuration"]["records"][0]["nve"]["members"] = {}
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
+    c["snapshot"]["observations"]["configuration"]["records"][0]["nve"]["members"] = {}
     expect(audit(a, b, c)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_vlan_mapping_missing", status: "blocked", commands: []))
   end
 
   it "does not activate an overlapping gateway on another VNI when adding a mapping" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    config = b["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = b["snapshot"]["observations"]["configuration"]["records"][0]
     config["vlan_vnis"] = { "8" => nil, "9" => 10009 }
     config["interfaces"]["Vlan9"] = config["interfaces"]["Vlan8"].dup
     expect(audit(a, b)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_vlan_mapping_missing", status: "blocked", commands: []))
@@ -195,25 +195,25 @@ RSpec.describe "Fabric business consistency" do
 
   it "detects transport differences even for an L2-only service with no gateway" do
     a, b = leaf("192.0.2.1", address: nil), leaf("192.0.2.2", address: nil)
-    [ a, b ].each { |d| d["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"] = {} }
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["nve"]["members"]["10008"] = { "associate_vrf" => false, "multicast_group" => "239.1.1.1" }
+    [ a, b ].each { |d| d["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"] = {} }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["nve"]["members"]["10008"] = { "associate_vrf" => false, "multicast_group" => "239.1.1.1" }
     expect(audit(a, b)[:findings]).to include(include(code: "fabric_replication"))
   end
 
   it "checks cross-device subnet conflicts before connecting an unmapped VLAN" do
     a, b, c = leaf("192.0.2.1"), leaf("192.0.2.2"), leaf("192.0.2.3", vni: 10009)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
     expect(audit(a, b, c)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_vlan_mapping_missing", status: "blocked", commands: []))
   end
 
   it "compares inherited multicast groups before connecting an unmapped VLAN" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
     [ a, b ].each_with_index do |document, index|
-      nve = document["snapshot"]["dimensions"]["configuration"]["records"][0]["nve"]
+      nve = document["snapshot"]["observations"]["configuration"]["records"][0]["nve"]
       nve["members"]["10008"] = { "associate_vrf" => false }
       nve["multicast_group"] = "239.1.1.#{index + 1}"
     end
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
+    b["snapshot"]["observations"]["configuration"]["records"][0]["vlan_vnis"]["8"] = nil
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_replication"))
     expect(result[:device_items]["192.0.2.2"]).to include(include(code: "fabric_vlan_mapping_missing", status: "blocked", commands: []))
@@ -221,13 +221,13 @@ RSpec.describe "Fabric business consistency" do
 
   it "treats both directions as equivalent to separate import and export RT declarations" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["evpn"]["10008"]["route_targets"] = %w[import export].map { |direction| { "direction" => direction, "target" => "auto" } }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["evpn"]["10008"]["route_targets"] = %w[import export].map { |direction| { "direction" => direction, "target" => "auto" } }
     expect(audit(a, b)[:findings]).not_to include(include(code: "fabric_route_targets"))
   end
 
   it "blocks otherwise valid ACL additions while the service route targets disagree" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["evpn"]["10008"]["route_targets"] = [ { "direction" => "both", "target" => "65000:999" } ]
+    b["snapshot"]["observations"]["configuration"]["records"][0]["evpn"]["10008"]["route_targets"] = [ { "direction" => "both", "target" => "65000:999" } ]
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_route_targets"))
     expect(result[:device_items]["192.0.2.2"]).to include(include(code: "fabric_acl_binding", status: "blocked", commands: []))
@@ -236,7 +236,7 @@ RSpec.describe "Fabric business consistency" do
   it "blocks otherwise valid ACL additions when tenant route targets disagree" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
     [ a, b ].each_with_index do |document, index|
-      document["snapshot"]["dimensions"]["configuration"]["records"][0]["vrfs"] = { "tenant" => { "vni" => 20000, "route_targets" => [ { "direction" => "both", "target" => "65000:#{index}" } ] } }
+      document["snapshot"]["observations"]["configuration"]["records"][0]["vrfs"] = { "tenant" => { "vni" => 20000, "route_targets" => [ { "direction" => "both", "target" => "65000:#{index}" } ] } }
     end
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_tenant_routing"))
@@ -246,7 +246,7 @@ RSpec.describe "Fabric business consistency" do
   it "blocks equal ACL text whose referenced address groups have different members" do
     a, b, c = leaf("192.0.2.1"), leaf("192.0.2.2"), leaf("192.0.2.3", acl: nil)
     [ a, b, c ].each_with_index do |document, index|
-      config = document["snapshot"]["dimensions"]["configuration"]["records"][0]
+      config = document["snapshot"]["observations"]["configuration"]["records"][0]
       config["acls"]["protect"][0]["expression"] = "ip addrgroup admins any"
       config["address_groups"] = { "admins" => [ index == 1 ? "198.51.100.0/24" : "192.0.2.0/24" ] }
     end
@@ -257,17 +257,17 @@ RSpec.describe "Fabric business consistency" do
 
   it "requires target dependencies even when the ACL definition itself will be created" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
-    source = a["snapshot"]["dimensions"]["configuration"]["records"][0]
+    source = a["snapshot"]["observations"]["configuration"]["records"][0]
     source["acls"]["protect"][0]["expression"] = "ip addrgroup admins any"
     source["address_groups"] = { "admins" => [ "192.0.2.0/24" ] }
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"] = {}
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"] = {}
     expect(audit(a, b)[:device_items]["192.0.2.2"]).to include(include(status: "blocked", commands: []))
   end
 
   it "still proposes a missing ACL binding when all referenced group members agree" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
     [ a, b ].each do |document|
-      config = document["snapshot"]["dimensions"]["configuration"]["records"][0]
+      config = document["snapshot"]["observations"]["configuration"]["records"][0]
       config["acls"]["protect"][0]["expression"] = "ip addrgroup admins any"
       config["address_groups"] = { "admins" => [ "192.0.2.0/24" ] }
     end
@@ -283,7 +283,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not create a shared ACL through a single SVI change" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    config = b["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = b["snapshot"]["observations"]["configuration"]["records"][0]
     config["acls"] = {}
     config["interfaces"]["Vlan9"] = { "acl_bindings" => { "in" => "protect" } }
     result = audit(a, b)
@@ -292,7 +292,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not transplant a gateway from another VRF" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["vrf"] = "other"
+    b["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan8"]["vrf"] = "other"
     expect(audit(a, b)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_gateway", status: "blocked", commands: []))
   end
 
@@ -307,7 +307,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "detects different ordered content even when ACL names and bindings match" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_acl_content"))
     expect(result[:device_items].values.flatten.flat_map { |item| item[:commands] }).to be_empty
@@ -315,14 +315,14 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not distribute a policy when an unbound same-name definition disagrees" do
     a, b, c = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil), leaf("192.0.2.3", acl: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"]["protect"][0]["action"] = "permit"
     result = audit(a, b, c)
     expect(result[:device_items]["192.0.2.3"]).to include(include(code: "fabric_acl_binding", status: "blocked", commands: []))
   end
 
   it "identifies an already attached but undefined ACL and proposes its missing definition" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2")
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["acls"] = {}
+    b["snapshot"]["observations"]["configuration"]["records"][0]["acls"] = {}
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_acl_undefined"))
     expect(result[:device_items]["192.0.2.2"].first[:change]).to include("create_acl" => true, "previous_binding" => "protect")
@@ -330,7 +330,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "blocks adding a gateway already assigned to another VNI in the same VRF" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    config = b["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = b["snapshot"]["observations"]["configuration"]["records"][0]
     config["vlan_vnis"]["1208"] = 11208
     config["interfaces"]["Vlan1208"] = config["interfaces"]["Vlan8"].merge("addresses" => [ "192.0.2.254/24" ])
     result = audit(a, b)
@@ -345,7 +345,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "retains containing networks and ordered duplicate address evidence when blocking a gateway" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    config = b["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = b["snapshot"]["observations"]["configuration"]["records"][0]
     config["vlan_vnis"].merge!("9" => 10009, "10" => 10010)
     config["interfaces"]["Vlan9"] = { "vrf" => "tenant", "addresses" => [ "192.0.0.1/16" ] }
     config["interfaces"]["Vlan10"] = { "vrf" => "tenant", "addresses" => [ "192.0.2.129/25", "192.0.2.129/25" ] }
@@ -359,7 +359,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "keeps other VRFs and address families outside an IPv4 gateway conflict" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    config = b["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = b["snapshot"]["observations"]["configuration"]["records"][0]
     config["interfaces"]["Vlan9"] = { "vrf" => "other", "addresses" => [ "192.0.2.129/25" ] }
     config["interfaces"]["Vlan10"] = { "vrf" => "tenant", "addresses" => [ "2001:db8::1/64" ] }
     expect(audit(a, b)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_gateway", status: "candidate"))
@@ -367,13 +367,13 @@ RSpec.describe "Fabric business consistency" do
 
   it "rejects malformed relevant subnet evidence instead of authorizing a gateway" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "tenant", "addresses" => [ "invalid" ] }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "tenant", "addresses" => [ "invalid" ] }
     expect { audit(a, b) }.to raise_error(IPAddr::InvalidAddressError)
   end
 
   it "does not turn an unrelated VRF's malformed address into gateway conflict evidence" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "other", "addresses" => [ "invalid" ] }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "other", "addresses" => [ "invalid" ] }
     expect(audit(a, b)[:device_items]["192.0.2.2"]).to include(include(code: "fabric_gateway", status: "candidate"))
   end
 
@@ -381,7 +381,7 @@ RSpec.describe "Fabric business consistency" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", address: nil)
     reviewer = Vxlan::Fabric::Review.new([ a, b ], { "fabrics" => { "test" => { "leaves" => %w[192.0.2.1 192.0.2.2] } } })
     expect(reviewer.call[:device_items]["192.0.2.2"]).to include(include(code: "fabric_gateway", status: "candidate"))
-    b["snapshot"]["dimensions"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "tenant", "addresses" => [ "192.0.2.129/25" ] }
+    b["snapshot"]["observations"]["configuration"]["records"][0]["interfaces"]["Vlan9"] = { "vrf" => "tenant", "addresses" => [ "192.0.2.129/25" ] }
     expect(reviewer.call[:device_items]["192.0.2.2"]).to include(include(code: "fabric_gateway", status: "blocked", commands: []))
   end
 
@@ -406,7 +406,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not report missing address groups on leaves that do not reference them" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", vni: 10009, address: "198.51.100.254/24")
-    config = a["snapshot"]["dimensions"]["configuration"]["records"][0]
+    config = a["snapshot"]["observations"]["configuration"]["records"][0]
     config["acls"]["protect"][0]["expression"] = "ip addrgroup admins any"
     config["address_groups"] = { "admins" => [ "192.0.2.0/24" ] }
     expect(audit(a, b)[:findings]).not_to include(include(code: "fabric_address_group"))
@@ -414,7 +414,7 @@ RSpec.describe "Fabric business consistency" do
 
   it "does not generate cross-device changes from an incomplete comparison group" do
     a, b = leaf("192.0.2.1"), leaf("192.0.2.2", acl: nil)
-    a["snapshot"]["dimensions"]["configuration"]["status"] = "partial"
+    a["snapshot"]["observations"]["configuration"]["status"] = "partial"
     result = audit(a, b)
     expect(result[:findings]).to include(include(code: "fabric_evidence_incomplete"))
     expect(result[:device_items].values.flatten.flat_map { |item| item[:commands] }).to be_empty

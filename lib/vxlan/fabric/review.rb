@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "ctx_runner/evidence"
 require "ipaddr"
 require "json"
 require "digest"
@@ -43,7 +44,7 @@ module Vxlan
           @role = nil
           review_subnets(fabric, configs)
         end
-        { schema_version: 2, scope: "same_role_same_deployed_vni", inventory: inventory, findings: @findings, device_items: @items.to_h, coverage: @coverage }
+        { schema_version: CtxRunner::Evidence::VERSION, kind: "fabric_review", scope: "same_role_same_deployed_vni", inventory: inventory, findings: @findings, device_items: @items.to_h, coverage: @coverage }
       end
 
       private

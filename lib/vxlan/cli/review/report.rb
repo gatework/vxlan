@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "ctx_runner/evidence"
 require "digest"
 require "ctx_runner/fingerprint"
 require_relative "../../recommendations"
@@ -42,7 +43,7 @@ module Vxlan
             change = plan.to_h
             id = [ basename, change["kind"], "vlan#{change['vlan']}", change["direction"], CtxRunner::Fingerprint.call(change)[0, 12] ].compact.join("--")
             config_sha256 ||= CtxRunner::Fingerprint.call(config)
-            entry[:changes][id] = { schema_version: 1, platform: "cisco_nxos", device: document.fetch("device"), expected_config_sha256: config_sha256,
+            entry[:changes][id] = { schema_version: CtxRunner::Evidence::VERSION, kind: "change", platform: "cisco_nxos", device: document.fetch("device"), expected_config_sha256: config_sha256,
               source: source, source_sha256: source_sha256, change: change, commands: plan.commands, rollback: plan.rollback,
               scope: item[:scope], title: item[:title], prerequisites: item[:prerequisites], impact: item[:impact], verify: item[:verify] }
             item[:plan_id] = id
@@ -65,10 +66,10 @@ module Vxlan
         def finish_review(entries, source_batch:, standalone: true)
           counts = entries.each_with_object(Hash.new(0)) { |entry, total| entry[:counts].each { |key, count| total[key] += count } }
           public_entries = entries.map { |entry| entry.reject { |key, _| %i[advice changes].include?(key) } }
-          summary = { layout_version: 3, mode: "review", status: "incomplete", review_only: true, devices: entries.size, counts: counts, source_batch: source_batch,
+          summary = { schema_version: CtxRunner::Evidence::VERSION, kind: "review", layout_version: 3, mode: "review", status: "incomplete", review_only: true, devices: entries.size, counts: counts, source_batch: source_batch,
             reports: public_entries, plan: "plan.json", plan_sha256: nil, fabric_findings: @fabric_audit ? @fabric_audit[:findings].size : 0 }
           checkpoint("summary.json", summary) if standalone
-          plan = { schema_version: 2, platform: "cisco_nxos", mode: "review", devices: public_entries, audits: entries.map { |entry| entry[:advice] },
+          plan = { schema_version: CtxRunner::Evidence::VERSION, kind: "change_plan", platform: "cisco_nxos", mode: "review", devices: public_entries, audits: entries.map { |entry| entry[:advice] },
             changes: entries.each_with_object({}) { |entry, all| all.merge!(entry[:changes]) }, fabric: @fabric_audit && @fabric_audit.reject { |key, _| key == :device_items } }
           body = JSON.pretty_generate(plan) + "\n"
           summary[:plan_sha256] = Digest::SHA256.hexdigest(body)
@@ -113,7 +114,7 @@ module Vxlan
           lines = [ "Device: #{device['name']} (#{device['host']})", "Mode: diagnostics and planning; no device configuration executed", "Evidence time: #{advice[:observed_at] || 'unknown'}", "Source: #{entry[:source]}", "Source file SHA256: #{entry[:source_sha256]}",
             "Recommendations: #{entry[:counts]}", "Command file: #{entry[:script] || 'not generated'}", "Command SHA256: #{entry[:script_sha256] || 'none'}", "Plan file: plan.json; interactive plan items: #{entry[:plans].size} items", "" ]
           lines << "Collection status: #{document['status']}" if document["status"]
-          configuration_time = document.dig("snapshot", "dimensions", "configuration", "evidence", 0, "observed_at")
+          configuration_time = document.dig("snapshot", "observations", "configuration", "evidence", 0, "observed_at")
           lines << "Configuration evidence time: #{configuration_time}" if configuration_time
           lines << "No current rules matched; this does not establish network health." if advice[:items].empty?
           advice[:items].each_with_index do |item, index|

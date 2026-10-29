@@ -5,10 +5,10 @@ require_relative "../spec_helper"
 RSpec.describe Vxlan::Config::Evidence do
   it "returns only one reviewed complete record from a complete observation" do
     record = { "review_status" => "complete" }
-    document = { "snapshot" => { "dimensions" => { "configuration" => { "status" => "complete", "records" => [ record ] } } } }
+    document = { "snapshot" => { "observations" => { "configuration" => { "status" => "complete", "records" => [ record ] } } } }
     expect(described_class.complete_record(document)).to equal(record)
 
-    observation = document["snapshot"]["dimensions"]["configuration"]
+    observation = document["snapshot"]["observations"]["configuration"]
     [ [], [ record, record ], [ { "review_status" => "partial" } ], [ {} ], [ nil ] ].each do |records|
       observation["records"] = records
       expect(described_class.complete_record(document)).to be_nil

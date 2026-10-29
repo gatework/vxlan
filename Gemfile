@@ -11,7 +11,7 @@ gem "rubocop-rails-omakase", require: false
 
 # 可选 CLI 网络/环境文件依赖与集成验证；纯解析安装无需连接器。
 group :examples do
-  gem "net-connector", "~> 0.19.0", require: false
+  gem "net-connector", "~> 0.20.0", require: false
 end
 
 # 公共业务层候选源码联调；发布包仍使用 gemspec 中的版本依赖。

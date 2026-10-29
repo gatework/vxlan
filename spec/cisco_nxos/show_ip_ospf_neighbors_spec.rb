@@ -11,9 +11,9 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors do
 
     expect(result).to be_a(CtxParser::Result)
     expect(result).to be_complete
-    expect(result.to_h.keys).to contain_exactly(:status, :records, :issues)
-    expect(result.records).to eq([ { neighbor_id: "192.0.2.2", priority: 1, state: "full/-", uptime: "1d",
-      address: "192.0.2.3", interface: "Eth1/1", process: "UNDERLAY", vrf: "default" } ])
+    expect(result.to_h.keys).to contain_exactly(:status, :records, :issues, :covered_scopes)
+    expect(result.records).to eq([ { router_id: "192.0.2.2", priority: 1, state: :full, neighbor_role: :unknown, uptime: "1d",
+      neighbor_address: "192.0.2.3", interface: "Eth1/1", process_id: "UNDERLAY", vrf: "default" } ])
     expect(described_class.parse(output).issues).to include(code: :output_incomplete)
   end
 
@@ -60,7 +60,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors do
     expect(raw).to include("\r\n")
 
     result = described_class.parse(raw + "\xFF".b, complete: true)
-    expect(result.to_h).to eq(status: :partial, records: [], issues: [ { code: :invalid_encoding } ])
+    expect(result.to_h).to eq(covered_scopes: [], status: :partial, records: [], issues: [ { code: :invalid_encoding } ])
   end
 
   it "does not reuse rows or diagnostics across independent parses" do
@@ -69,7 +69,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowIpOspfNeighbors do
     unsupported = parser.parse("% Invalid command at '^' marker.\n", complete: true)
     last = parser.parse(output, complete: true)
 
-    expect(unsupported.to_h).to eq(status: :unsupported, records: [], issues: [ { code: :command_unsupported } ])
+    expect(unsupported.to_h).to eq(covered_scopes: [], status: :unsupported, records: [], issues: [ { code: :command_unsupported } ])
     expect(last).to be_complete
     expect(first.status).to eq(:partial)
     expect(first.issues).to eq([ { code: :unparsed_row, line: 5 } ])

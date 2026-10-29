@@ -13,7 +13,7 @@ RSpec.describe "Vxlan offline review" do
     stub_const("CtxCli::Input::MAX_BYTES", 32)
     Dir.mktmpdir do |root|
       Dir.mkdir(File.join(root, "evidence"))
-      File.write(File.join(root, "evidence", "large.json"), JSON.generate(device: { name: "AC", host: "192.0.2.1" }, snapshot: nil))
+      File.write(File.join(root, "evidence", "large.json"), JSON.generate(schema_version: 3, kind: "collection", device: { name: "AC", host: "192.0.2.1" }, snapshot: nil))
       error = StringIO.new
       expect(Vxlan::CLI.run([ "review", "--batch", root ], out: StringIO.new, error: error)).to eq(2)
       expect(File.exist?(File.join(root, "reviews"))).to be(false)
@@ -38,7 +38,7 @@ RSpec.describe "Vxlan offline review" do
   it "does not fall back to legacy JSON in the user-facing devices directory" do
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, "devices"))
-      File.write(File.join(root, "devices", "old.json"), JSON.generate(device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil))
+      File.write(File.join(root, "devices", "old.json"), JSON.generate(schema_version: 3, kind: "collection", device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil))
       expect(Vxlan::CLI.run([ "review", "--batch", root ], out: StringIO.new, error: StringIO.new)).to eq(2)
       expect(Dir[File.join(root, "reviews", "*")]).to be_empty
     end
@@ -47,7 +47,7 @@ RSpec.describe "Vxlan offline review" do
   it "publishes topology-style text reports and one checksummed batch plan without Markdown" do
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, "evidence"))
-      File.write(File.join(root, "evidence", "leaf.json"), JSON.generate(device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil))
+      File.write(File.join(root, "evidence", "leaf.json"), JSON.generate(schema_version: 3, kind: "collection", device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil))
       expect(Vxlan::CLI.run([ "review", "--batch", root ], out: StringIO.new, error: StringIO.new)).to eq(0)
       generated = Dir[File.join(root, "reviews", "*")].fetch(0)
       expect(Dir.children(generated).sort).to eq(%w[devices events.jsonl plan.json plan.json.sha256 summary.json summary.txt])
@@ -82,7 +82,7 @@ RSpec.describe "Vxlan offline review" do
         config = { "review_status" => "complete", "vlan_vnis" => { "8" => 10008 }, "vrfs" => {}, "evpn" => { "10008" => { "type" => "l2" } }, "nve" => { "members" => { "10008" => { "associate_vrf" => false, "replication" => "bgp" } } },
           "interfaces" => { "Vlan8" => { "addresses" => [ "192.0.2.254/24" ], "vrf" => "tenant", "anycast" => true, "acl_bindings" => index.zero? ? { "out" => "protect" } : {} } },
           "acls" => { "protect" => [ { "sequence" => 10, "action" => "permit", "expression" => "ip any any" } ] } }
-        document = { device: { host: host, name: "leaf#{index}", platform: "cisco_nxos" }, snapshot: { target: { host: host }, dimensions: { configuration: { status: "complete", records: [ config ], issues: [] } } } }
+        document = { schema_version: 3, kind: "collection", device: { host: host, name: "leaf#{index}", platform: "cisco_nxos" }, snapshot: { collection_status: "complete", observed_at: "2026-10-29T00:00:00.000000Z", target: { host: host }, observations: { configuration: { name: "configuration", status: "complete", records: [ config ], issues: [] } } } }
         File.write(File.join(batch, "evidence", "leaf#{index}.json"), JSON.generate(document))
       end
       policy = File.join(root, "fabric.yml")
@@ -122,7 +122,7 @@ RSpec.describe "Vxlan offline review" do
   it "rejects duplicate device identities before they overwrite a stable report name" do
     Dir.mktmpdir do |root|
       Dir.mkdir(File.join(root, "evidence"))
-      document = { device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil }
+      document = { schema_version: 3, kind: "collection", device: { name: "leaf", host: "192.0.2.1" }, snapshot: nil }
       %w[a b].each { |name| File.write(File.join(root, "evidence", "#{name}.json"), JSON.generate(document)) }
       expect(Vxlan::CLI.run([ "review", "--batch", root ], out: StringIO.new, error: StringIO.new)).to eq(2)
       expect(Dir[File.join(root, "reviews", "*")]).to be_empty
@@ -133,7 +133,7 @@ RSpec.describe "Vxlan offline review" do
     [
       { device: { name: "leaf", host: "2001:0db8:0::1" }, snapshot: nil },
       { device: { name: "leaf", host: "192.0.2.1/32" }, snapshot: nil },
-      { device: { name: "leaf", host: "192.0.2.1" }, snapshot: { target: { host: "192.0.2.2" }, dimensions: {} } }
+      { device: { name: "leaf", host: "192.0.2.1" }, snapshot: { collection_status: "complete", observed_at: "2026-10-29T00:00:00.000000Z", target: { host: "192.0.2.2" }, observations: {} } }
     ].each do |document|
       Dir.mktmpdir do |root|
         Dir.mkdir(File.join(root, "evidence"))
@@ -150,7 +150,7 @@ RSpec.describe "Vxlan offline review" do
       Dir.mkdir(batch)
       Dir.mkdir(File.join(batch, "evidence"))
       source = File.join(batch, "evidence", "leaf.json")
-      body = JSON.generate(device: { name: "LEAF", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "partial", records: [], issues: [] } } })
+      body = JSON.generate(schema_version: 3, kind: "collection", device: { name: "LEAF", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: { collection_status: "partial", observed_at: "2026-10-29T00:00:00.000000Z", target: { host: "192.0.2.1" }, observations: { configuration: { name: "configuration", status: "partial", records: [], issues: [] } } })
       File.write(source, body)
       out, error = StringIO.new, StringIO.new
       status = Vxlan::CLI.run([ "review", "--batch", batch, "--output", File.join(root, "out") ], out: out, error: error)
@@ -190,7 +190,7 @@ RSpec.describe "Vxlan offline review" do
   it "rejects malformed nested observations through the normal error channel" do
     Dir.mktmpdir do |root|
       Dir.mkdir(File.join(root, "evidence"))
-      File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "partial", records: [], issues: "private-password" } } }))
+      File.write(File.join(root, "evidence", "bad.json"), JSON.generate(schema_version: 3, kind: "collection", device: { name: "test", host: "192.0.2.1" }, snapshot: { collection_status: "partial", observed_at: "2026-10-29T00:00:00.000000Z", target: { host: "192.0.2.1" }, observations: { configuration: { name: "configuration", status: "partial", records: [], issues: "private-password" } } }))
       error = StringIO.new
       expect(Vxlan::CLI.run([ "review", "--batch", root ], error: error, out: StringIO.new)).to eq(2)
       expect(error.string).not_to include("private-password")
@@ -203,7 +203,7 @@ RSpec.describe "Vxlan offline review" do
       { address_groups: "private-value" }, { address_groups: { admins: [ "private-value" ] } } ].each do |record|
       Dir.mktmpdir do |root|
         Dir.mkdir(File.join(root, "evidence"))
-        File.write(File.join(root, "evidence", "bad.json"), JSON.generate(device: { name: "test", host: "192.0.2.1" }, snapshot: { target: { host: "192.0.2.1" }, dimensions: { configuration: { status: "complete", records: [ record ] } } }))
+        File.write(File.join(root, "evidence", "bad.json"), JSON.generate(schema_version: 3, kind: "collection", device: { name: "test", host: "192.0.2.1" }, snapshot: { collection_status: "complete", observed_at: "2026-10-29T00:00:00.000000Z", target: { host: "192.0.2.1" }, observations: { configuration: { name: "configuration", status: "complete", records: [ record ] } } }))
         error = StringIO.new
         expect(Vxlan::CLI.run([ "review", "--batch", root ], error: error, out: StringIO.new)).to eq(2)
         expect(error.string).not_to include("private-value")
@@ -236,7 +236,7 @@ RSpec.describe "Vxlan offline review" do
   end
   it "exports configuration drafts only when explicitly requested" do
     Dir.mktmpdir do |root|
-      document = { "device" => { "host" => "192.0.2.1", "name" => "test" }, "snapshot" => nil }
+      document = { "schema_version" => 3, "kind" => "collection", "device" => { "host" => "192.0.2.1", "name" => "test" }, "snapshot" => nil }
       advice = { device: document["device"], items: [ { code: "test", scope: "test", title: "test", status: "candidate", evidence: {}, prerequisites: [], blockers: [], commands: [ "configuration-command" ], rollback: [ "rollback-command" ], verify: [], references: [] } ], counts: { "candidate" => 1 } }
       plain = Vxlan::CLI::Report.new(File.join(root, "plain"))
       plain.write_review(document, basename: "test", source: "test", source_sha256: "a" * 64, advice: advice)

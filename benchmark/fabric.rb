@@ -14,7 +14,7 @@ puts JSON.generate(ruby: RUBY_DESCRIPTION, source: Vxlan::Fabric::Review.instanc
     config = { "review_status" => "complete", "acls" => { "POLICY" => entries }, "address_groups" => groups }
     config = config.merge("address_groups" => groups.transform_values { [ "198.51.100.0/24" ] }) if index == 1
     { "device" => { "host" => host, "name" => host }, "snapshot" => {
-      "dimensions" => { "configuration" => { "status" => "complete", "records" => [ config ] } }
+      "observations" => { "configuration" => { "status" => "complete", "records" => [ config ] } }
     } }
   end
   policy = { "fabrics" => { "test" => { "leaves" => documents.map { |document| document["device"]["host"] } } } }

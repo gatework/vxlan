@@ -18,7 +18,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowRunningConfig do
     expect(capture.block.children.map(&:line)).to eq([ 3, 4, 5 ])
     expect(capture.block).to be_complete
     expect(parser.cursor.position).to eq(parser.cursor.size)
-    expect(result.to_h.keys).to contain_exactly(:status, :records, :issues)
+    expect(result.to_h.keys).to contain_exactly(:status, :records, :issues, :covered_scopes)
   end
 
   it "captures nested NVE and BGP contexts at their projected data paths" do

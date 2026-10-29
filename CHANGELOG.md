@@ -4,6 +4,13 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.7.0 (2026-10-29)
+
+- Compose the shared snapshot contract and remove the synthetic collection observation. Whitelist public target identities and validate timestamps and dimensions.
+- Normalize OSPF process_id, router_id, neighbor_address, symbolic state and neighbor_role while retaining priority and uptime.
+- Delegate interactive apply to ctx_cli, resolving credentials through net-connector, including empty overrides and platform enable passwords.
+- Use schema 3 reports and named checksummed plans. Older files must be regenerated.
+
 ## 0.6.0 (2026-10-29)
 
 - Require RuntimeParser platform at construction and add parse_many. Rename Snapshot Ruby members to observations/observation while retaining dimensions in persisted reports. Use Catalog and shared Credentials in CLI; reject selected duplicate addresses across platforms before connecting.

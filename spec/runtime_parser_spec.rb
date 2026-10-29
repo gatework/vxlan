@@ -235,7 +235,7 @@ RSpec.describe Vxlan::RuntimeParser do
     expect(parse(:ospf_neighbors, wrong).status).to eq(:partial)
     empty = "OSPF Process ID EMPTY VRF GREEN\nTotal number of neighbors: 0\n"
     expect(parse(:ospf_neighbors, ospf + empty)).to be_complete
-    expect(parse(:ospf_neighbors, ospf).records.first[:state]).to eq("full/-")
+    expect(parse(:ospf_neighbors, ospf).records.first[:state]).to eq(:full)
   end
 
   it "binds interface columns to their headers and keeps state words in descriptions" do

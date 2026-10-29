@@ -19,7 +19,7 @@ RSpec.describe Vxlan::CLI::Connector do
           print "LEAF#"
         end
       PROGRAM
-      [ RbConfig.ruby, "-e", program ]
+      [ RbConfig.ruby, "--disable-gems", "-e", program ]
     end
   end
 
@@ -58,7 +58,7 @@ RSpec.describe Vxlan::CLI::Connector do
         error
       end.value
       expect(failure).to be_a(Net::Connector::SessionBusy)
-      snapshot = Vxlan::Collector.new.collect_session(session: native, target: {}, fabric_key: "LAB", dimensions: [ :configuration ])
+      snapshot = Vxlan::Collector.new.collect_session(session: native, target: { host: "192.0.2.1" }, fabric_key: "LAB", dimensions: [ :configuration ])
       expect(snapshot).to be_complete
       expect(native).to be_connected
     end
@@ -80,9 +80,9 @@ RSpec.describe Vxlan::CLI::Connector do
           operation.call(device)
         end
       end
-      snapshot = Vxlan::Collector.new.collect(connector: connector, target: {}, fabric_key: "LAB", dimensions: [ :configuration ])
+      snapshot = Vxlan::Collector.new.collect(connector: connector, target: { host: "192.0.2.1" }, fabric_key: "LAB", dimensions: [ :configuration ])
       expect(snapshot.observations.fetch(:configuration)).to be_complete
-      expect(snapshot.observations.fetch(:collection).issues).to eq([ { code: :session_close_failed } ])
+      expect(snapshot.issues).to eq([ { code: :session_close_failed, stage: :close, error_type: "IOError" } ])
       expect(native).not_to be_connected
       expect(snapshot.inspect).not_to include("private-finalization-detail", "hostname LEAF")
     end
@@ -104,7 +104,7 @@ RSpec.describe Vxlan::CLI::Connector do
       summary = JSON.parse(out.string)
       expect(summary.fetch("counts")).to eq("complete" => 1)
       report = Dir[File.join(directory, "reports/*/evidence/*.json")].fetch(0)
-      expect(JSON.parse(File.read(report)).dig("snapshot", "dimensions", "configuration", "records", 0, "hostname")).to eq("LEAF")
+      expect(JSON.parse(File.read(report)).dig("snapshot", "observations", "configuration", "records", 0, "hostname")).to eq("LEAF")
     end
   end
 end

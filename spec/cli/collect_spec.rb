@@ -490,7 +490,7 @@ RSpec.describe Vxlan::CLI::Collect do
     directory = summary.fetch("directory")
     expect(Dir["#{directory}/evidence/*.json"].size).to eq(2)
     report = JSON.parse(File.read("#{directory}/evidence/LEAF-01-192.0.2.10.json"))
-    expect(report.dig("snapshot", "dimensions", "configuration", "records", 0, "hostname")).to eq("LEAF")
+    expect(report.dig("snapshot", "observations", "configuration", "records", 0, "hostname")).to eq("LEAF")
     expect(File.stat("#{directory}/summary.json").mode & 0o777).to eq(0o600)
     expect(File.stat(directory).mode & 0o777).to eq(0o700)
   end

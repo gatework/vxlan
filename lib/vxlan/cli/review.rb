@@ -53,7 +53,7 @@ module Vxlan
 
       # 先校验公共证据外壳，再验证领域记录。
       def validate(document)
-        CtxRunner::Evidence.validate(document) { |record, dimension| validate_record(record, dimension) }
+        CtxRunner::Evidence.validate(document, names: CiscoNxos::Profile::COMMANDS.keys) { |record, dimension| validate_record(record, dimension) }
       end
 
       # 在输出目录创建前验证所有会参与建议生成的嵌套字段。

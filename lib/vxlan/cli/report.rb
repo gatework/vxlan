@@ -4,6 +4,7 @@ require "json"
 require "time"
 require "ctx_runner/report"
 require "ctx_runner/document"
+require "ctx_runner/evidence"
 require_relative "review/report"
 require_relative "review/fabric"
 
@@ -37,7 +38,7 @@ module Vxlan
         name = self.class.device_basename(device)
         # 保存状态属于批次宿主；不能让正在发布的文件预先声明自身已保存。
         body = result.reject { |key, _| key == :report_saved }.merge(snapshot: snapshot && snapshot.to_h)
-        document = CtxRunner::Document.call(body)
+        document = CtxRunner::Evidence.wrap(body, kind: "collection")
         advice = report_advice(Recommendations.new(document).call)
         document = document.merge("recommendations" => advice)
         json = JSON.pretty_generate(document) + "\n"

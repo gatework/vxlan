@@ -6,7 +6,7 @@ module Vxlan
     module Evidence
       # 外层采集成功不能覆盖记录层的部分解析或多份配置歧义。
       def self.complete_record(document)
-        observation = document&.dig("snapshot", "dimensions", "configuration")
+        observation = document&.dig("snapshot", "observations", "configuration")
         return unless observation && observation["status"] == "complete"
         records = observation["records"]
         return unless records.is_a?(Array) && records.one?

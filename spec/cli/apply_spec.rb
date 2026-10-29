@@ -33,14 +33,14 @@ RSpec.describe "Vxlan interactive apply" do
     JSON.parse(JSON.generate(observation.records.fetch(0)))
   end
 
-  def exercise(confirmation: true, tty: true, drift: false, fail_write: false, altered: false, persistence_failure: false, failed_readback: false, checkpoint_failure: false, batch: true, item: "test-change", bad_checksum: false, confirmation_item: nil, callbacks: 1, close_failure: false, reuse_readback: false, broken_error: false, interrupted_write: false)
+  def exercise(env: nil, confirmation: true, tty: true, drift: false, fail_write: false, altered: false, persistence_failure: false, failed_readback: false, checkpoint_failure: false, batch: true, item: "test-change", bad_checksum: false, confirmation_item: nil, callbacks: 1, close_failure: false, reuse_readback: false, broken_error: false, interrupted_write: false)
     Dir.mktmpdir do |root|
       action = Vxlan::ChangePlan.build(change)
       commands, rollback = action.commands, action.rollback
-      plan = { schema_version: 1, platform: "cisco_nxos", device: { "host" => "192.0.2.1", "name" => "test" }, expected_config_sha256: CtxRunner::Fingerprint.call(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
+      plan = { schema_version: 3, kind: "change", platform: "cisco_nxos", device: { "host" => "192.0.2.1", "name" => "test" }, expected_config_sha256: CtxRunner::Fingerprint.call(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
       plan[:commands] = [ "reboot" ] if altered
       path = File.join(root, "plan.json")
-      document = batch ? { schema_version: 2, platform: "cisco_nxos", changes: { "test-change" => plan, "other-change" => plan.merge(device: { "host" => "192.0.2.2", "name" => "other" }) } } : plan
+      document = batch ? { schema_version: 3, kind: "change_plan", platform: "cisco_nxos", changes: { "test-change" => plan, "other-change" => plan.merge(device: { "host" => "192.0.2.2", "name" => "other" }) } } : plan
       File.write(path, JSON.generate(document))
       File.write("#{path}.sha256", bad_checksum ? "0" * 64 : Digest::SHA256.file(path).hexdigest) if batch
       token = "APPLY 192.0.2.1 #{Digest::SHA256.file(path).hexdigest[0, 12]}"
@@ -48,7 +48,7 @@ RSpec.describe "Vxlan interactive apply" do
       input = tty ? terminal(confirmation ? "#{token}\n" : "no\n") : StringIO.new("#{token}\n")
       out, error = terminal, terminal
       error.define_singleton_method(:puts) { |*| raise IOError, "private-diagnostic-failure" } if broken_error
-      writes, connections = [], []
+      writes, connections, credentials = [], [], []
       before, after = config, failed_readback ? config : after_config
       session = Object.new
       session.define_singleton_method(:read_configuration) do
@@ -62,6 +62,7 @@ RSpec.describe "Vxlan interactive apply" do
       end
       factory = lambda do |device, settings, &block|
         connections << device
+        credentials << settings
         callbacks.times { block.call(session) }
         raise IOError, "private-close-detail" if close_failure
       end
@@ -78,10 +79,19 @@ RSpec.describe "Vxlan interactive apply" do
       end
       args = [ "apply", "--plan", path, "--directory", File.join(root, "execution") ]
       args.concat([ "--item", item ]) if batch && item
-      status = Vxlan::CLI.run(args, discovery: { directories: [] }, env: { "NC_DEVICE_USERNAME" => "test" }, out: out, error: error, input: input, connector_factory: factory)
+      status = Vxlan::CLI.run(args, discovery: { directories: [] }, env: env || { "NC_DEVICE_USERNAME" => "test" }, out: out, error: error, input: input, connector_factory: factory)
       journals = Dir[File.join(root, "execution", "*", "execution.json")].map { |file| JSON.parse(File.read(file)) }
-      { status: status, writes: writes, connections: connections, journals: journals, error: error.string }
+      { status: status, writes: writes, connections: connections, journals: journals, error: error.string, credentials: credentials }
     end
+  end
+
+  it "uses common credentials for empty platform overrides and keeps the platform enable password" do
+    result = exercise(env: { "NC_DEVICE_USERNAME" => "shared-user", "NC_DEVICE_PASSWORD" => "shared-secret",
+      "NC_CISCO_NXOS_USERNAME" => "", "NC_CISCO_NXOS_PASSWORD" => "", "NC_ENABLE_PASSWORD" => "common-enable",
+      "NC_CISCO_NXOS_ENABLE_PASSWORD" => "platform-enable" })
+    expect(result[:status]).to eq(0), result[:error]
+    expect(result[:credentials]).to contain_exactly(include(username: "shared-user", password: "shared-secret", enable_password: "platform-enable"))
+    expect(result[:journals].to_s + result[:error]).not_to include("shared-secret", "platform-enable")
   end
 
   it "returns a preflight failure without connecting when stderr is unavailable" do

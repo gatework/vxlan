@@ -11,6 +11,10 @@ connector_artifact = ARGV[1] && File.expand_path(ARGV[1])
 expect_artifact = ARGV[2] && File.expand_path(ARGV[2])
 runner_artifact = ARGV[3] && File.expand_path(ARGV[3])
 cli_artifact = ARGV[4] && File.expand_path(ARGV[4])
+parser_dependencies = ARGV.drop(5).map { |path| File.expand_path(path) }
+parser_dependencies.each do |path|
+  abort "Unexpected parsing dependency" unless %w[ctx_parser ctx_driver].include?(Gem::Package.new(path).spec.name)
+end
 cli_spec = cli_artifact && Gem::Package.new(cli_artifact).spec
 abort "Unexpected CLI candidate" if cli_spec && cli_spec.name != "ctx_cli"
 runner_spec = runner_artifact && Gem::Package.new(runner_artifact).spec
@@ -60,6 +64,7 @@ Dir.mktmpdir("gem-install-") do |home|
   local_dependencies.each { |path| FileUtils.cp(path, home) }
   ruby = RbConfig.ruby
   system(env, ruby, "-S", "gem", "install", cli_artifact, "--no-document", exception: true) if cli_artifact
+  parser_dependencies.each { |path| system(env, ruby, "-S", "gem", "install", path, "--no-document", exception: true) }
   system(env, ruby, "-S", "gem", "install", runner_artifact, "--no-document", exception: true) if runner_artifact
   system(env, ruby, "-S", "gem", "install", artifact, "--no-document", exception: true)
   if cli_artifact
@@ -100,7 +105,7 @@ Dir.mktmpdir("gem-install-") do |home|
     system(command, "apply", "--help", exception: true)
     require "json"
     FileUtils.mkdir_p("saved/evidence")
-    File.write("saved/evidence/ac.json", JSON.generate(device: { name: "AC", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: nil))
+    File.write("saved/evidence/ac.json", JSON.generate(schema_version: 3, kind: "collection", device: { name: "AC", host: "192.0.2.1", platform: "h3c_wireless" }, snapshot: nil))
     system(command, "review", "--batch", "saved", "--output", "reviews", exception: true)
     abort "Missing installed review artifacts" unless Dir["reviews/*/devices/*.txt"].size == 1
     review_root = Dir["reviews/*"].fetch(0)
@@ -120,7 +125,7 @@ Dir.mktmpdir("gem-install-") do |home|
     expect_package = #{expect_artifact.inspect}
     system(RbConfig.ruby, "-S", "gem", "install", expect_package, "--local", "--no-document", exception: true) if expect_package
     connector_package = #{connector_artifact.inspect}
-    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.19.0" ]
+    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.20.0" ]
     system(RbConfig.ruby, "-S", "gem", "install", *installation, "--no-document", exception: true)
     system(command, "collect", "--help-all", exception: true)
     system(command, "collect", "--init", "--non-interactive", exception: true)
