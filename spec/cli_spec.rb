@@ -80,7 +80,8 @@ RSpec.describe "VXLAN installed command" do
 
   it "loads the library and CLI without the connector or executing a command" do
     program = 'require "vxlan/cli"; abort if defined?(Net::Connector); abort if $LOADED_FEATURES.any? { |f| f.include?("vxlan/cli/collect") }'
-    stdout, stderr, status = Bundler.with_unbundled_env { Open3.capture3(RbConfig.ruby, "-I#{root}/lib", "-e", program) }
+    environment = Bundler.unbundled_env.merge("GEM_PATH" => Gem.path.join(File::PATH_SEPARATOR))
+    stdout, stderr, status = Open3.capture3(environment, RbConfig.ruby, "-I#{root}/lib", "-e", program)
     expect(status).to be_success, stderr
     expect(stdout).to eq("")
   end
