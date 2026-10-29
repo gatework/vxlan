@@ -120,7 +120,7 @@ Dir.mktmpdir("gem-install-") do |home|
     expect_package = #{expect_artifact.inspect}
     system(RbConfig.ruby, "-S", "gem", "install", expect_package, "--local", "--no-document", exception: true) if expect_package
     connector_package = #{connector_artifact.inspect}
-    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.18.0" ]
+    installation = connector_package ? [ connector_package, "--local" ] : [ "net-connector", "--version", "~> 0.19.0" ]
     system(RbConfig.ruby, "-S", "gem", "install", *installation, "--no-document", exception: true)
     system(command, "collect", "--help-all", exception: true)
     system(command, "collect", "--init", "--non-interactive", exception: true)
