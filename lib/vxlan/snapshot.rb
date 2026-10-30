@@ -20,7 +20,7 @@ module Vxlan
       end
       @fabric_key = fabric_key.dup.freeze
       @snapshot = CtxRunner::Snapshot.new(target: target, observations: observations, observed_at: observed_at,
-        names: CiscoNxos::Profile::COMMANDS.keys, issues: issues)
+        names: CiscoNxos::Profile::DECLARATIONS.by_dimension.keys, issues: issues)
       freeze
     end
 

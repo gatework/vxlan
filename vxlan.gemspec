@@ -27,9 +27,9 @@ Gem::Specification.new do |spec|
   spec.executables = [ "vxlan" ]
 
   spec.add_dependency "ctx_cli", ">= 0.5.0", "< 0.6"
-  spec.add_dependency "ctx_runner", ">= 0.5.0", "< 0.6"
-  spec.add_dependency "ctx_parser", ">= 0.4.0", "< 0.5"
-  spec.add_dependency "ctx_driver", ">= 0.5.0", "< 0.6"
+  spec.add_dependency "ctx_runner", ">= 0.5.1", "< 0.6"
+  spec.add_dependency "ctx_parser", ">= 0.5.0", "< 0.6"
+  spec.add_dependency "ctx_driver", ">= 0.5.1", "< 0.6"
   spec.add_dependency "digest"
   spec.add_dependency "ipaddr"
   %w[json optparse yaml fileutils tempfile time].each { |name| spec.add_dependency name }

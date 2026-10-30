@@ -11,7 +11,7 @@ require_relative "snapshot"
 module Vxlan
   # 单设备单会话顺序采集；各维度独立失败，断链后不重放查询。
   class Collector
-    COMMANDS = CiscoNxos::Profile::COMMANDS
+    COMMANDS = CiscoNxos::Profile::DECLARATIONS.by_dimension
     PREPARATION_COMMANDS = [ "terminal length 0", "terminal width 511" ].freeze
 
     # 注入为顺序命令观测生成时间戳的时钟。

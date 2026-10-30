@@ -32,8 +32,6 @@ module Vxlan
         { dimensions: [ :l2route_macs ], command: "show l2route evpn mac all", parser: Parsers::ShowL2routeEvpnMacAll },
         { dimensions: [ :l2route_mac_ips ], command: "show l2route evpn mac-ip all", parser: Parsers::ShowL2routeEvpnMacIpAll }
       ])
-      COMMANDS = DECLARATIONS.by_dimension
-      PARSERS = DECLARATIONS.parsers
     end
   end
 end

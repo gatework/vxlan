@@ -177,7 +177,7 @@ module Vxlan
           evidence.merge!(configuration_records: records.size, review_status: records.map { |record| record["review_status"] })
         end
         item("evidence_incomplete", name, "Evidence incomplete; collect missing evidence first", evidence: evidence,
-          verify: Array(CiscoNxos::Profile::COMMANDS[name.to_sym]), category: "evidence").merge(status: "investigate", expected: "A complete response or explicit zero-record evidence is required; an empty response does not establish absence of configuration.")
+          verify: Array(CiscoNxos::Profile::DECLARATIONS.by_dimension[name.to_sym]), category: "evidence").merge(status: "investigate", expected: "A complete response or explicit zero-record evidence is required; an empty response does not establish absence of configuration.")
       end
     end
 
@@ -187,7 +187,7 @@ module Vxlan
         rows = @dimensions.fetch(dimension, {}).fetch("records", []).select { |row| %w[down idle active connect opensent openconfirm].include?(row["state"].to_s.downcase) }
         next if rows.empty?
         item("#{dimension}_not_up", dimension, "Observed runtime state is not established", evidence: rows,
-          verify: [ CiscoNxos::Profile::COMMANDS[dimension.to_sym], "show running-config" ], category: "runtime").merge(status: "investigate", prerequisites: [ "Confirm service expectations first, then check peers, underlay routing, interfaces and configuration; do not automatically restart neighbors or enable interfaces." ])
+          verify: [ CiscoNxos::Profile::DECLARATIONS.by_dimension[dimension.to_sym], "show running-config" ], category: "runtime").merge(status: "investigate", prerequisites: [ "Confirm service expectations first, then check peers, underlay routing, interfaces and configuration; do not automatically restart neighbors or enable interfaces." ])
       end
     end
   end

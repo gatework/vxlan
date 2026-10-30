@@ -4,6 +4,13 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.9.0 (2026-10-30)
+
+- Migrate NX-OS profiles and consumers to ctx_parser 0.5 Commands declarations; remove Profile COMMANDS/PARSERS aliases.
+- Require the parser-compatible ctx_driver/ctx_runner patch releases without changing collector, evidence or report schemas.
+
+- Allow the Ruby 4 / expect-pty 0.10 compatible net-connector 0.22.x alongside 0.21.x for optional collection.
+
 ## 0.8.0 (2026-10-30)
 
 - Adopt schema 4 Target/Source contracts and shared configuration read/write sessions. Validate target platform before opening a connector. Normalize BGP to `peer_address`, `afi_safi`, `received_prefixes` and symbolic states; CDP uses `local_interface`, `remote_interface`, `remote_name`. Require connector 0.21 for collection.
