@@ -6,7 +6,7 @@ require "optparse"
 require "ctx_cli/options"
 require "ctx_cli/terminal"
 require "ctx_cli/initializer"
-gem "net-connector", "~> 0.20.0"
+gem "net-connector", "~> 0.21.0"
 require "net/connector/inventory/filters"
 require "yaml"
 require "ipaddr"
@@ -67,7 +67,7 @@ module Vxlan
         @environment = @files.environment
         @config, @env_file = @files.config, @files.env_file
       rescue LoadError
-        raise LoadError, "Collection configuration requires net-connector >= 0.20.0; reading .env also requires dotenv", cause: nil
+        raise LoadError, "Collection configuration requires net-connector >= 0.21.0; reading .env also requires dotenv", cause: nil
       end
 
       # 公共与专用文件先合并，进程值和 CLI 最后覆盖；数组不追加设备。
@@ -211,12 +211,12 @@ module Vxlan
 
       # 设备身份只接受公开字段，拒绝隐藏在 YAML 中的密码或连接参数。
       def normalize_device(row)
-        unless row.is_a?(Hash) && (row.keys - %w[host name model]).empty? && row["host"].is_a?(String) && !row["host"].include?("/")
+        unless row.is_a?(Hash) && (row.keys - %w[host name model platform]).empty? && (!row.key?("platform") || row["platform"] == "cisco_nxos") && row["host"].is_a?(String) && !row["host"].include?("/")
           raise ArgumentError, "devices accepts only host, name and model; host must be a single IP address"
         end
         host = IPAddr.new(row.fetch("host")).to_s
         %w[name model].each { |key| raise ArgumentError, "Device #{key} must be a nonempty string" if row.key?(key) && !row[key].nil? && (!row[key].is_a?(String) || row[key].strip.empty?) }
-        { "host" => host, "name" => row["name"] || host, "model" => row["model"] }.freeze
+        { "platform" => "cisco_nxos", "host" => host, "name" => row["name"] || host, "model" => row["model"] }.freeze
       rescue IPAddr::Error
         raise ArgumentError, "Invalid device host", cause: nil
       end

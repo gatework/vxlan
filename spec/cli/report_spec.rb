@@ -12,7 +12,7 @@ RSpec.describe Vxlan::CLI::Report do
     end
   end
 
-  let(:result) { { device: { "host" => "192.0.2.10", "name" => "LEAF" }, status: :complete, dimensions: {} } }
+  let(:result) { { target: { "host" => "192.0.2.10", "name" => "LEAF" }, status: :complete, dimensions: {} } }
 
   it "makes every newly created directory durable before publishing an execution intent" do
     root = File.join(@root, "nested", "executions")
@@ -64,7 +64,7 @@ RSpec.describe Vxlan::CLI::Report do
     report.write(result)
     expect(Dir.children(File.join(report.directory, "devices"))).to eq([ "LEAF-192.0.2.10.txt" ])
     path = File.join(report.directory, "evidence", "LEAF-192.0.2.10.json")
-    expect(JSON.parse(File.read(path))["device"]["host"]).to eq("192.0.2.10")
+    expect(JSON.parse(File.read(path))["target"]["host"]).to eq("192.0.2.10")
     expect(File.read(File.join(report.directory, "devices", "LEAF-192.0.2.10.txt"))).to include(path)
   end
 
@@ -102,7 +102,7 @@ RSpec.describe Vxlan::CLI::Report do
       raise Errno::ENOSPC, "private-summary-detail" if target.end_with?("/summary.txt")
       original.call(source, target)
     end
-    expect { report.finish([ result.merge(report_saved: true) ], requested: [ result.fetch(:device) ]) }.to raise_error(described_class::Error)
+    expect { report.finish([ result.merge(report_saved: true) ], requested: [ result.fetch(:target) ]) }.to raise_error(described_class::Error)
     expect(File).to exist(File.join(report.directory, "summary.json"))
     saved = JSON.parse(File.read(File.join(report.directory, "summary.json")))
     expect(saved).to include("status" => "incomplete", "completed" => 1, "report_error" => "report_finalization_unconfirmed")
@@ -222,7 +222,7 @@ RSpec.describe Vxlan::CLI::Report do
       end
     end
     report.write(result)
-    report.finish([ result ], requested: [ result.fetch(:device) ])
+    report.finish([ result ], requested: [ result.fetch(:target) ])
     expect(synced).to eq([ report.directory, "#{report.directory}/evidence", report.directory, "#{report.directory}/devices" ] + [ report.directory ] * 3)
     Dir["#{report.directory}/**/*"].each do |path|
       expect(File.stat(path).mode & 0o777).to eq(File.directory?(path) ? 0o700 : 0o600)
@@ -232,7 +232,7 @@ RSpec.describe Vxlan::CLI::Report do
   it "does not report complete when requested targets have never been collected" do
     report = described_class.new(@root)
     missing = { "host" => "192.0.2.11", "name" => "SPARE" }
-    summary = report.finish([ result ], requested: [ result.fetch(:device), missing ])
+    summary = report.finish([ result ], requested: [ result.fetch(:target), missing ])
     expect(summary.fetch("status")).to eq("incomplete")
     expect(summary.fetch("pending")).to eq([ missing ])
   end
@@ -244,7 +244,7 @@ RSpec.describe Vxlan::CLI::Report do
     results = [ original_result ]
     allow(publisher).to receive(:finish).and_wrap_original do |original, *args, **options, &render|
       original.call(*args, **options) do |document|
-        original_result[:device]["host"] = "changed-host"
+        original_result[:target]["host"] = "changed-host"
         original_result[:status] = :failed
         results.clear
         render.call(document)

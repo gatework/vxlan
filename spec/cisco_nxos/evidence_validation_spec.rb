@@ -34,7 +34,7 @@ RSpec.describe "NX-OS runtime evidence validation" do
   it "accepts repeated equal CDP fields" do
     result = cdp("System Name: LAB\nSystem Name: LAB\nMTU: 1500\nMTU: 1500\nDC_UUID:\nDC_UUID:")
     expect(result).to be_complete
-    expect(result.records.first).to include(neighbor_name: "LAB", attributes: { mtu: "1500", dc_uuid: nil })
+    expect(result.records.first).to include(remote_name: "LAB", attributes: { mtu: "1500", dc_uuid: nil })
   end
 
   it "excludes conflicting CDP interfaces without dropping independent neighbors or poisoning a later parse" do
@@ -45,7 +45,7 @@ RSpec.describe "NX-OS runtime evidence validation" do
       "Interface: Ethernet1/1, Port ID (outgoing port): Ethernet1/2\n"
     result = parser.parse(:cdp_neighbors, conflict + valid + "Total entries displayed: 2\n", complete: true)
     expect(result.status).to eq(:partial)
-    expect(result.records.map { |row| row[:neighbor_name] }).to eq([ "NEXT" ])
+    expect(result.records.map { |row| row[:remote_name] }).to eq([ "NEXT" ])
     expect(parser.parse(:cdp_neighbors, valid + "Total entries displayed: 1\n", complete: true)).to be_complete
   end
 

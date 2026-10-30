@@ -11,7 +11,7 @@ module Vxlan
     include CtxRunner::Document::Value
     extend Forwardable
     def_delegators :@snapshot, :target, :observations, :observed_at, :issues, :collection_status,
-      :observation, :complete?, :same_target?
+      :observation, :records, :complete?, :same_target?
     attr_reader :fabric_key
 
     def initialize(target:, fabric_key:, observations:, observed_at:, issues: [])

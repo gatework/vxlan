@@ -34,8 +34,8 @@ module Vxlan
           validate(entry[2])
           entry << Recommendations.new(entry[2]).call
         end
-        hosts = documents.map { |entry| entry[2]["device"]["host"] }
-        names = documents.map { |entry| CLI::Report.device_basename(entry[2].fetch("device")) }
+        hosts = documents.map { |entry| entry[2]["target"]["host"] }
+        names = documents.map { |entry| CLI::Report.target_basename(entry[2].fetch("target")) }
         raise ArgumentError, "Duplicate device identity or output name" unless hosts.uniq == hosts && names.uniq == names
         policy = options[:fabric_policy] && YAML.safe_load(CtxCli::Input.read(path: options[:fabric_policy]), aliases: false)
         Vxlan::Fabric::Scope.new(policy) if policy

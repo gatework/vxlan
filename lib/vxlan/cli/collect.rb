@@ -34,7 +34,7 @@ module Vxlan
       def load_network
         require "net/connector"
       rescue LoadError
-        raise LoadError, "Online collection requires net-connector >= 0.20.0; add it to the host Gemfile or run gem install net-connector", cause: nil
+        raise LoadError, "Online collection requires net-connector >= 0.21.0; add it to the host Gemfile or run gem install net-connector", cause: nil
       end
 
       # YAML 静态设备或显式 Netdisco 来源二选一；选中地址的所有冲突记录在连接前拒绝。

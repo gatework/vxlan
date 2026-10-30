@@ -8,10 +8,10 @@ module Vxlan
       # 解析 NVE 端点及路由器 MAC，支持终端换行记录。
       class ShowNvePeers < Parser
         EMPTY = "peers"
-        IDENTITY = %i[interface peer_ip].freeze
+        IDENTITY = %i[interface peer_address].freeze
         HEADER = /\AInterface\s+Peer-IP\s+State\s+LearnType\s+Uptime\s+Router-Mac\z/i
         ROW = /\A(nve\d+)\s+(\d+(?:\.\d+){3})\s+(Up|Down)\s+(\S+)\s+(\S+)\s+([\da-f]{4}(?:\.[\da-f]{4}){2}|n\/a)\z/i
-        FIELDS = %i[interface peer_ip state learn_type uptime router_mac].freeze
+        FIELDS = %i[interface peer_address state learn_type uptime router_mac].freeze
 
         private
 

@@ -4,6 +4,10 @@ Changes to the public contract are recorded here. Versions follow Semantic Versi
 
 ## Unreleased
 
+## 0.8.0 (2026-10-30)
+
+- Adopt schema 4 Target/Source contracts and shared configuration read/write sessions. Validate target platform before opening a connector. Normalize BGP to `peer_address`, `afi_safi`, `received_prefixes` and symbolic states; CDP uses `local_interface`, `remote_interface`, `remote_name`. Require connector 0.21 for collection.
+
 ## 0.7.0 (2026-10-29)
 
 - Compose the shared snapshot contract and remove the synthetic collection observation. Whitelist public target identities and validate timestamps and dimensions.

@@ -207,7 +207,7 @@ RSpec.describe Vxlan::RuntimeParser do
     result = parse(:bgp_neighbors, bgp + bgp.sub("VRF default", "VRF BLUE"))
     expect(result).to be_complete, result.issues.inspect
     expect(result.records.map { |row| row[:vrf] }).to eq(%w[default BLUE])
-    expect(result.records.first).to include(remote_as: 65002, prefixes_received: 12, state: "established",
+    expect(result.records.first).to include(remote_as: 65002, received_prefixes: 12, state: :established,
       prefixes_by_type: { type2: 5, type3: 4, type4: 0, type5: 3, type12: 0 })
     empty_scope = "BGP summary information for VRF GREEN, address family L2VPN EVPN\nNo BGP neighbors found\n"
     expect(parse(:bgp_neighbors, bgp + empty_scope)).to be_complete
@@ -224,8 +224,8 @@ RSpec.describe Vxlan::RuntimeParser do
 
   it "keeps zero-prefix BGP established and administrative idle distinct" do
     text = bgp.lines.take(5).join.sub("1d 12", "1d 0")
-    expect(parse(:bgp_neighbors, text).records.first).to include(state: "established", prefixes_received: 0)
-    expect(parse(:bgp_neighbors, text.sub("1d 0", "1d Idle (Admin)")).records.first).to include(state: "idle_(admin)", prefixes_received: nil)
+    expect(parse(:bgp_neighbors, text).records.first).to include(state: :established, received_prefixes: 0)
+    expect(parse(:bgp_neighbors, text.sub("1d 0", "1d Idle (Admin)")).records.first).to include(state: :shutdown, received_prefixes: nil)
   end
 
   it "checks OSPF totals separately for each process and VRF" do
@@ -318,8 +318,8 @@ RSpec.describe Vxlan::RuntimeParser do
   it "preserves CDP address scopes and software metadata while checking the trailing count" do
     result = parse(:cdp_neighbors, cdp)
     expect(result).to be_complete
-    expect(result.records.first).to include(neighbor_name: "SPINE", interface_addresses: [ "192.0.2.2" ],
-      management_addresses: [ "198.51.100.2" ], neighbor_interface: "Ethernet1/2",
+    expect(result.records.first).to include(remote_name: "SPINE", interface_addresses: [ "192.0.2.2" ],
+      management_addresses: [ "198.51.100.2" ], remote_interface: "Ethernet1/2",
       version: "Software description: legacy feature not supported\nSecond software line",
       attributes: { advertisement_version: "2", duplex: "full", mtu: "9216", native_vlan: "40" })
     expect(parse(:cdp_neighbors, cdp.sub("displayed : 1", "displayed : 2")).status).to eq(:partial)

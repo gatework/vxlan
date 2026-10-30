@@ -21,7 +21,7 @@ module Vxlan
 
     # 通过调用方持有的连接器顺序采集请求维度。
     def collect(connector:, target:, fabric_key:, model: nil, dimensions: COMMANDS.keys)
-      target = CtxRunner::Target.snapshot(target)
+      target = CtxRunner::Target.coerce(target).to_h
       target, fabric_key, dimensions, profile = request(target, fabric_key, dimensions, connector.platform, model)
 
       observations = {}
@@ -44,14 +44,18 @@ module Vxlan
 
     # 连接前固定请求数据，生命周期入口和借用会话入口共用相同校验。
     def request(target, fabric_key, dimensions, platform, model)
-      target = CtxRunner::Target.snapshot(target)
+      target = CtxRunner::Target.coerce(target).to_h
       unless fabric_key.is_a?(String) && !fabric_key.strip.empty? && !/[\x00-\x1f\x7f]/.match?(fabric_key)
         raise ArgumentError, "Fabric identity must be nonempty text"
       end
       unless dimensions.is_a?(Array) && dimensions.any? && dimensions.uniq == dimensions && (dimensions - COMMANDS.keys).empty?
         raise ArgumentError, "Unknown or duplicate VXLAN dimensions"
       end
-      raise ArgumentError, "VXLAN requires Cisco NX-OS" unless platform.to_s == "cisco_nxos"
+      platform = ParserRegistry.canonical(platform).to_s
+      if target[:platform] && ParserRegistry.canonical(target[:platform]).to_s != platform
+        raise ArgumentError, "Target platform differs from the connector"
+      end
+      target = target.merge(platform: platform)
 
       [ CtxParser::Immutable.copy(target), CtxParser::Immutable.copy(fabric_key), dimensions.dup.freeze,
         ParserRegistry.fetch(platform, model: model) ]

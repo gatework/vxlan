@@ -146,8 +146,12 @@ Offline review requires `snapshot.target.host` to match the canonical device hos
 
 ## API migration
 
-`RuntimeParser.new(platform:, model: nil)` fixes the platform for `parse(name, text, complete: false, command: nil)` and `parse_many(names, text, complete: false, command: nil)`. Snapshots use `observations:` and expose `observations` / `observation(name)`; the old Ruby `dimensions` member and Wireless `dimension` accessor are removed. Known missing dimensions return `not_requested`; unknown names raise `ArgumentError`. Persisted schema 3 JSON uses `observations` and an independent `collection_status`; regenerate older reports.
+`RuntimeParser.new(platform:, model: nil)` fixes the platform for `parse(name, text, complete: false, command: nil)` and `parse_many(names, text, complete: false, command: nil)`. Snapshots use `observations:` and expose `observations` / `observation(name)`; the old Ruby `dimensions` member and Wireless `dimension` accessor are removed. Known missing dimensions return `not_requested`; unknown names raise `ArgumentError`. Persisted schema 4 JSON uses `observations` and an independent `collection_status`; regenerate older reports.
 
 Dynamic inventory uses `Netdisco::Catalog`. Any duplicate row for a selected address, including another platform, prevents connection; excluded conflicts retain safe diagnostics. `NC_<PLATFORM>_ENABLE_PASSWORD` takes precedence over `NC_ENABLE_PASSWORD`.
 
 本次契约升级要求重新生成旧报告和计划；Ruby 快照使用 `observations`、`collection_status` 和 `Time`，JSON 通过 `CtxRunner::Document` 输出 UTC ISO8601（解析基础库仅提供 `Result`）。跨模块约定见 [ctx_runner 契约迁移](https://github.com/gatework/ctx_runner/blob/main/docs/contracts-2026-10-29.md)。
+
+## Domain contract migration (2026-10-30)
+
+Adopt schema 4 Target/Source contracts and shared configuration read/write sessions. Validate target platform before opening a connector. Normalize BGP to `peer_address`, `afi_safi`, `received_prefixes` and symbolic states; CDP uses `local_interface`, `remote_interface`, `remote_name`. Require connector 0.21 for collection. See the [schema 4 migration and module contracts](https://github.com/gatework/ctx_runner/blob/main/docs/contracts-2026-10-30.md). Regenerate old collection reports and change plans; changing only their version number is not supported.

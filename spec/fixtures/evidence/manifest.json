@@ -20,7 +20,7 @@
         "issues": [],
         "records": [
           {
-            "peer_ip": "192.0.2.2",
+            "peer_address": "192.0.2.2",
             "version": 4,
             "remote_as": 65002,
             "messages_received": 14334442,
@@ -31,10 +31,10 @@
             "uptime": "1y25w",
             "state": "established",
             "vrf": "default",
-            "address_family": "L2VPN EVPN",
+            "afi_safi": "l2vpn_evpn",
             "router_id": "192.0.2.1",
             "local_as": "65001",
-            "prefixes_received": 3249,
+            "received_prefixes": 3249,
             "prefixes_by_type": {
               "type2": 1864,
               "type3": 693,
@@ -43,7 +43,7 @@
             }
           },
           {
-            "peer_ip": "192.0.2.3",
+            "peer_address": "192.0.2.3",
             "version": 4,
             "remote_as": 65002,
             "messages_received": 14334198,
@@ -54,10 +54,10 @@
             "uptime": "1y25w",
             "state": "established",
             "vrf": "default",
-            "address_family": "L2VPN EVPN",
+            "afi_safi": "l2vpn_evpn",
             "router_id": "192.0.2.1",
             "local_as": "65001",
-            "prefixes_received": 3249,
+            "received_prefixes": 3249,
             "prefixes_by_type": {
               "type2": 1864,
               "type3": 693,

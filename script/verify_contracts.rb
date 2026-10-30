@@ -12,7 +12,7 @@ mutations = JSON.parse(<<~'JSON')
   {
     "id": "non-assertion-control",
     "file": "lib/vxlan/cisco_nxos/parsers/show_bgp_l2vpn_evpn_summary.rb",
-    "find": "if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]",
+    "find": "if peer[:received_prefixes] && counts.sum > peer[:received_prefixes]",
     "replacement": "if raise(NoMethodError, \"verification-sentinel\")",
     "spec": "spec/evidence_contract_spec.rb",
     "control": true
@@ -20,7 +20,7 @@ mutations = JSON.parse(<<~'JSON')
   {
     "id": "prefix-statistics-upper-bound",
     "file": "lib/vxlan/cisco_nxos/parsers/show_bgp_l2vpn_evpn_summary.rb",
-    "find": "if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]",
+    "find": "if peer[:received_prefixes] && counts.sum > peer[:received_prefixes]",
     "replacement": "if false",
     "spec": "spec/evidence_contract_spec.rb"
   },

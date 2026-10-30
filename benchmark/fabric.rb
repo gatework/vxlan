@@ -13,11 +13,11 @@ puts JSON.generate(ruby: RUBY_DESCRIPTION, source: Vxlan::Fabric::Review.instanc
   documents = %w[192.0.2.1 192.0.2.2].each_with_index.map do |host, index|
     config = { "review_status" => "complete", "acls" => { "POLICY" => entries }, "address_groups" => groups }
     config = config.merge("address_groups" => groups.transform_values { [ "198.51.100.0/24" ] }) if index == 1
-    { "device" => { "host" => host, "name" => host }, "snapshot" => {
+    { "target" => { "host" => host, "name" => host }, "snapshot" => {
       "observations" => { "configuration" => { "status" => "complete", "records" => [ config ] } }
     } }
   end
-  policy = { "fabrics" => { "test" => { "leaves" => documents.map { |document| document["device"]["host"] } } } }
+  policy = { "fabrics" => { "test" => { "leaves" => documents.map { |document| document["target"]["host"] } } } }
   samples = 3.times.map do
     GC.start
     allocated = GC.stat(:total_allocated_objects)

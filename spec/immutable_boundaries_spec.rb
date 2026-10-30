@@ -25,7 +25,7 @@ RSpec.describe "Immutable facts and evidence" do
 
   it "keeps string interpolation as private as inspect for facts and snapshots" do
     observation = Vxlan::Observation.new(name: :configuration, status: :complete,
-      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { detail: "PRIVATE_EVIDENCE" } ])
+      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { reference: "PRIVATE_EVIDENCE" } ])
     snapshot = Vxlan::Snapshot.new(target: { host: "192.0.2.1", name: "PRIVATE_TARGET" }, fabric_key: "LAB",
       observations: { configuration: observation }, observed_at: Time.now.utc)
     [ observation, snapshot ].each do |value|
@@ -36,7 +36,7 @@ RSpec.describe "Immutable facts and evidence" do
 
   it "keeps pretty printing as private as inspect for facts and snapshots", :aggregate_failures do
     observation = Vxlan::Observation.new(name: :configuration, status: :complete,
-      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { detail: "PRIVATE_EVIDENCE" } ])
+      records: [ { description: "PRIVATE_FACT" } ], evidence: [ { reference: "PRIVATE_EVIDENCE" } ])
     snapshot = Vxlan::Snapshot.new(target: { host: "192.0.2.1", name: "PRIVATE_TARGET" }, fabric_key: "LAB",
       observations: { configuration: observation }, observed_at: Time.now.utc)
     [ observation, snapshot ].each do |value|
@@ -78,7 +78,7 @@ RSpec.describe "Immutable facts and evidence" do
 
   [ Vxlan ].each do |domain|
     it "detaches #{domain} evidence and timestamps from caller state" do
-      evidence = [ { command: +"show test", sha256: +"digest" } ]
+      evidence = [ { command: +"show test", sha256: +("a" * 64), bytes: 1 } ]
       time = Time.now
             value = domain::Observation.new(name: :configuration, status: :complete,
         evidence: evidence, started_at: time, completed_at: time)
@@ -101,10 +101,10 @@ RSpec.describe "Immutable facts and evidence" do
       attributes[:fabric_key]&.clear
 
       expect(value).to be_complete
-      expect(value.target[:host]).to eq("192.0.2.1")
+      expect(value.target.host).to eq("192.0.2.1")
       expect(value.fabric_key).to eq("LAB")
       expect { value.observations.clear }.to raise_error(FrozenError)
-      expect { value.target[:id].clear }.to raise_error(FrozenError)
+      expect { value.target.id.clear }.to raise_error(FrozenError)
       expect(value.observed_at).to be_frozen
     end
   end

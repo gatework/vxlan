@@ -8,13 +8,13 @@ module Vxlan
       # 从 BGP 汇总解析 EVPN 邻居状态及可选路由类型统计。
       class ShowBgpL2vpnEvpnSummary < Parser
         EMPTY = "(?:BGP )?neighbors"
-        IDENTITY = %i[vrf address_family peer_ip].freeze
+        IDENTITY = %i[vrf afi_safi peer_address].freeze
         BOUNDARY = /^\s*BGP summary information for VRF /
         SCOPE = /\ABGP summary information for VRF (\S+), address family (.+)\z/
         ROUTER = /\ABGP router identifier (\S+), local AS number (\S+)\z/
         HEADER = /\ANeighbor\s+V\s+AS\s+MsgRcvd\s+MsgSent\s+TblVer\s+InQ\s+OutQ\s+Up\/Down\s+State\/PfxRcd\z/i
         ROW = /\A([\da-f:.]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)\z/i
-        FIELDS = %i[peer_ip version remote_as messages_received messages_sent table_version input_queue output_queue uptime state].freeze
+        FIELDS = %i[peer_address version remote_as messages_received messages_sent table_version input_queue output_queue uptime state].freeze
         INTEGERS = %i[version remote_as messages_received messages_sent table_version input_queue output_queue].freeze
         PREFIX_TYPES = %i[type1 type2 type3 type4 type5 type6 type7 type8 type12].freeze
         TABLE = /\ABGP table version is \d+(?:, L2VPN EVPN config peers (\d+), capable peers (\d+))?\z/i
@@ -29,7 +29,7 @@ module Vxlan
           scope, identities, invalid = nil, {}, {}
           text.each_line("\n") do |line|
             if (match = SCOPE.match(line.strip))
-              scope = match.captures
+              scope = [ match[1], match[2] == "L2VPN EVPN" ? "l2vpn_evpn" : match[2] ]
             elsif (match = ROUTER.match(line.strip))
               identity = router_identity(match)
               if !identity
@@ -42,10 +42,10 @@ module Vxlan
             end
           end
           invalid.each do |key, code|
-            issue = { code: code, vrf: key&.first, address_family: key&.last }
+            issue = { code: code, vrf: key&.first, afi_safi: key&.last }
             @issues << issue unless @issues.include?(issue)
           end
-          @rows.reject! { |row| invalid.key?(row.values_at(:vrf, :address_family)) }
+          @rows.reject! { |row| invalid.key?(row.values_at(:vrf, :afi_safi)) }
         end
 
         # ASDOT 与 ASPLAIN 用同一数值比较；无效身份不能附着到完整邻居事实。
@@ -67,8 +67,8 @@ module Vxlan
               @header = true
               prefix_columns = nil
             elsif (match = SCOPE.match(line))
-              scope = { vrf: match[1], address_family: match[2] }
-              unparsed_records(number) unless scope[:address_family] == "L2VPN EVPN"
+              scope = { vrf: match[1], afi_safi: match[2] == "L2VPN EVPN" ? "l2vpn_evpn" : match[2] }
+              unparsed_records(number) unless scope[:afi_safi] == "l2vpn_evpn"
               prefix_columns = nil
             elsif (match = ROUTER.match(line))
               scope.merge!(router_id: match[1], local_as: match[2])
@@ -89,7 +89,7 @@ module Vxlan
               if statistics && !prefix_seen.key?(statistics.first.object_id)
                 peer, counts = statistics
                 # 路由类型是总前缀的子集；未展示的类型允许存在，已展示之和不能超过总数。
-                if peer[:prefixes_received] && counts.sum > peer[:prefixes_received]
+                if peer[:received_prefixes] && counts.sum > peer[:received_prefixes]
                   @issues << { code: :inconsistent_prefix_statistics, line: number }
                 else
                   peer[:prefixes_by_type] = prefix_columns.zip(counts).to_h
@@ -106,7 +106,7 @@ module Vxlan
               end
               @rows << row
               # 统计表按完整作用域查找；重复邻居仍由最终身份检查整体隔离。
-              peers[row.values_at(:vrf, :address_family, :peer_ip)] ||= row
+              peers[row.values_at(:vrf, :afi_safi, :peer_address)] ||= row
             else
               unparsed_records(number)
             end
@@ -125,23 +125,28 @@ module Vxlan
             count_mismatch(configured, @rows.size)
             @issues << { code: :invalid_peer_counts, configured: configured, capable: capable } if capable > configured
           end
-          @empty = true if values == [ [ 0, 0 ] ] && @rows.empty? && scope[:address_family] == "L2VPN EVPN"
+          @empty = true if values == [ [ 0, 0 ] ] && @rows.empty? && scope[:afi_safi] == "l2vpn_evpn"
         end
 
         # AS 0 只表示尚未建立邻居的未知身份；数值前缀总数始终表示已建立会话。
         def neighbor_record(match, scope)
           row = FIELDS.zip(match.captures).to_h.merge(scope)
           INTEGERS.each { |key| row[key] = row[key].to_i }
-          return unless row[:vrf] && row[:address_family] == "L2VPN EVPN" && ip_address?(row[:peer_ip]) && row[:version] == 4 &&
+          return unless row[:vrf] && row[:afi_safi] == "l2vpn_evpn" && ip_address?(row[:peer_address]) && row[:version] == 4 &&
             (0..4_294_967_295).cover?(row[:remote_as]) && STATE.match?(row[:state])
 
-          row[:prefixes_received] = row[:state].match?(/\A\d+\z/) ? row[:state].to_i : nil
+          row[:received_prefixes] = row[:state].match?(/\A\d+\z/) ? row[:state].to_i : nil
           row[:remote_as] = row[:remote_as].nonzero?
-          return if row[:prefixes_received] && row[:remote_as].nil?
+          return if row[:received_prefixes] && row[:remote_as].nil?
 
-          row[:peer_ip] = CtxParser::Values.ip_address(row[:peer_ip], allow_zone: true)
-          row[:state] = row[:prefixes_received] ? "established" : row[:state].downcase.tr(" ", "_")
+          row[:peer_address] = CtxParser::Values.ip_address(row[:peer_address], allow_zone: true)
+          row[:state] = row[:received_prefixes] ? :established : state_value(row[:state])
           row
+        end
+
+        def state_value(value)
+          return :shutdown if /admin|shutdown/i.match?(value)
+          value.downcase.to_sym
         end
 
         # 从末尾读取类型计数，保留多词状态，并按主表身份与总数关联统计。
@@ -154,14 +159,14 @@ module Vxlan
           return unless ip_address?(address) && %w[I E].include?(kind) && asn.match?(/\A\d+\z/) && counts.all? { |value| value.match?(/\A\d+\z/) }
 
           address = CtxParser::Values.ip_address(address, allow_zone: true)
-          peer = peers[[ scope[:vrf], scope[:address_family], address ]]
+          peer = peers[[ scope[:vrf], scope[:afi_safi], address ]]
           return unless peer && peer[:remote_as] == asn.to_i.nonzero?
 
           if total
             value = words.join(" ")
             return unless STATE.match?(value)
-            observed = value.match?(/\A\d+\z/) ? value.to_i : value.downcase.tr(" ", "_")
-            return unless observed == (peer[:prefixes_received] || peer[:state])
+            observed = value.match?(/\A\d+\z/) ? value.to_i : state_value(value)
+            return unless observed == (peer[:received_prefixes] || peer[:state])
           else
             return unless words.empty?
           end

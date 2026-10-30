@@ -32,7 +32,7 @@ RSpec.describe "VXLAN remediation recommendations" do
 
   def review(body, complete: true)
     observation = Vxlan::Config.new.parse(body, complete: complete)
-    document = JSON.parse(JSON.generate(device: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
+    document = JSON.parse(JSON.generate(target: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
     Vxlan::Recommendations.new(document).call
   end
 
@@ -85,7 +85,7 @@ RSpec.describe "VXLAN remediation recommendations" do
 
   it "requests evidence instead of silently accepting an incomplete configuration record" do
     observation = Vxlan::Config.new.parse(config, complete: true)
-    document = JSON.parse(JSON.generate(device: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
+    document = JSON.parse(JSON.generate(target: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
     [ "partial", nil ].each do |status|
       document["snapshot"]["observations"]["configuration"]["records"][0]["review_status"] = status
       result = Vxlan::Recommendations.new(document).call
@@ -96,7 +96,7 @@ RSpec.describe "VXLAN remediation recommendations" do
 
   it "requests evidence when a complete observation contains multiple configuration records" do
     observation = Vxlan::Config.new.parse(config, complete: true)
-    document = JSON.parse(JSON.generate(device: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
+    document = JSON.parse(JSON.generate(target: { host: "192.0.2.1", name: "LEAF" }, snapshot: { observations: { configuration: observation.to_h } }))
     records = document["snapshot"]["observations"]["configuration"]["records"]
     records << records.first.dup
     result = Vxlan::Recommendations.new(document).call

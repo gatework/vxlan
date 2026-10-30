@@ -33,7 +33,7 @@ RSpec.describe "NX-OS live table formats" do
     text = "Interface Peer-IP State LearnType Uptime Router-Mac\nnve1 192.0.2.1 Up CP 2y45w n/a\n"
     result = parser.parse(:nve_peers, text, complete: true)
     expect(result).to be_complete
-    expect(result.records).to eq([ { interface: "nve1", peer_ip: "192.0.2.1", state: "up", learn_type: "CP", uptime: "2y45w", router_mac: nil } ])
+    expect(result.records).to eq([ { interface: "nve1", peer_address: "192.0.2.1", state: "up", learn_type: "CP", uptime: "2y45w", router_mac: nil } ])
     expect(parser.parse(:nve_peers, text.sub("n/a", "bad-mac"), complete: true)).not_to be_complete
   end
 

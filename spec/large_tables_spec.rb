@@ -17,14 +17,14 @@ RSpec.describe "Large VXLAN tables" do
     expect(observation).to be_complete
     expect(observation.records.size).to eq(256)
     observation.records.each do |row|
-      expect(row[:prefixes_by_type][:type2]).to eq(row[:peer_ip].split(".").last.to_i - 1)
+      expect(row[:prefixes_by_type][:type2]).to eq(row[:peer_address].split(".").last.to_i - 1)
     end
     expect(parser.parse(:bgp_neighbors, output + output.lines.last, complete: true).status).to eq(:partial)
     duplicate = output.sub("Neighbor T AS", "192.0.2.1 4 65001 0 0 0 0 0 1d 0\nNeighbor T AS")
     ambiguous = parser.parse(:bgp_neighbors, duplicate, complete: true)
     expect(ambiguous.status).to eq(:partial)
-    expect(ambiguous.records).not_to include(include(vrf: "BLUE", peer_ip: "192.0.2.1"))
-    expect(ambiguous.records).to include(include(vrf: "GREEN", peer_ip: "192.0.2.1"))
+    expect(ambiguous.records).not_to include(include(vrf: "BLUE", peer_address: "192.0.2.1"))
+    expect(ambiguous.records).to include(include(vrf: "GREEN", peer_address: "192.0.2.1"))
   end
 
   it "deduplicates wrapped next hops in source order without joining across invalid rows or headers" do

@@ -37,10 +37,10 @@ RSpec.describe "Vxlan interactive apply" do
     Dir.mktmpdir do |root|
       action = Vxlan::ChangePlan.build(change)
       commands, rollback = action.commands, action.rollback
-      plan = { schema_version: 3, kind: "change", platform: "cisco_nxos", device: { "host" => "192.0.2.1", "name" => "test" }, expected_config_sha256: CtxRunner::Fingerprint.call(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
+      plan = { schema_version: 4, kind: "change", platform: "cisco_nxos", target: { "host" => "192.0.2.1", "name" => "test", "platform" => "cisco_nxos" }, expected_config_sha256: CtxRunner::Fingerprint.call(config), change: change, commands: commands, rollback: rollback, prerequisites: [], impact: "test" }
       plan[:commands] = [ "reboot" ] if altered
       path = File.join(root, "plan.json")
-      document = batch ? { schema_version: 3, kind: "change_plan", platform: "cisco_nxos", changes: { "test-change" => plan, "other-change" => plan.merge(device: { "host" => "192.0.2.2", "name" => "other" }) } } : plan
+      document = batch ? { schema_version: 4, kind: "change_plan", platform: "cisco_nxos", changes: { "test-change" => plan, "other-change" => plan.merge(target: { "host" => "192.0.2.2", "name" => "other" }) } } : plan
       File.write(path, JSON.generate(document))
       File.write("#{path}.sha256", bad_checksum ? "0" * 64 : Digest::SHA256.file(path).hexdigest) if batch
       token = "APPLY 192.0.2.1 #{Digest::SHA256.file(path).hexdigest[0, 12]}"

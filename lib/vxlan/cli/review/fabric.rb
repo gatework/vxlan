@@ -12,7 +12,7 @@ module Vxlan
       module Fabric
         # 相同事实合并展示；规则版本保持匹配顺序，完整证据由聚合计划保存。
         def fabric_text(audit, documents)
-          by_host = documents.to_h { |document| [ document.fetch("device").fetch("host"), document ] }
+          by_host = documents.to_h { |document| [ document.fetch("target").fetch("host"), document ] }
           lines = [ "Fabric shared-service consistency", "Scope: compare shared VNIs within explicit Fabrics and roles; compare Leaf and Border separately, and check Spine for service-bearing configuration.", "Deployment facts combine VLAN/NVE/EVPN evidence; incomplete deployment does not mean absence. Deployment scope differences are retained.", "ACL comparison includes ordered rules and dependencies; a majority without an ACL is not grounds for removal.", "" ]
           inventory = audit[:inventory]
           if inventory
@@ -23,7 +23,7 @@ module Vxlan
                 services = audit[:coverage].select { |entry| entry[:fabric] == fabric && entry[:role] == role }
                 partial = services.select { |entry| entry[:incomplete].any? }
                 lines << "  #{role}: deployed services #{services.size}, services shared across devices #{services.count { |entry| entry[:deployed].size >= 2 }}, incomplete associations #{partial.size}."
-                partial.each { |entry| lines << "    VNI #{entry[:vni]} missing: #{entry[:incomplete].map { |host| by_host.dig(host, 'device', 'name') || host }.join(', ')}" }
+                partial.each { |entry| lines << "    VNI #{entry[:vni]} missing: #{entry[:incomplete].map { |host| by_host.dig(host, 'target', 'name') || host }.join(', ')}" }
               end
             end
             lines << ""
@@ -39,14 +39,14 @@ module Vxlan
               common = defined.reduce { |all, members| all & members } || []
               lines << "  Members common to defined versions (not an approved baseline): #{common.empty? ? 'none' : common.join(', ')}"
               evidence.group_by { |row| row[:value] }.each do |members, rows|
-                names = rows.map { |row| by_host.dig(row[:host], "device", "name") || row[:host] }
+                names = rows.map { |row| by_host.dig(row[:host], "target", "name") || row[:host] }
                 value = members ? "#{members.size} members; outside the common set: #{(members - common).empty? ? 'none' : (members - common).join(', ')}" : "No definition provided or object evidence not collected"
                 lines.concat([ "  #{names.join(', ')}", "    #{value}" ])
               end
               next
             end
             unless evidence.is_a?(Array) && evidence.all? { |row| row.is_a?(Hash) }
-              lines << JSON.pretty_generate(evidence)
+              lines << JSON.pretty_generate(evidence, max_nesting: 128)
               next
             end
             grouped = evidence.group_by do |row|
@@ -59,12 +59,12 @@ module Vxlan
               [ row[:vlan] || row[:interface] || "shared", display_fabric_value(value) ]
             end
             grouped.each do |(vlan, value), members|
-              names = members.map { |row| row[:name] || by_host.dig(row[:host], "device", "name") || row[:host] }
+              names = members.map { |row| row[:name] || by_host.dig(row[:host], "target", "name") || row[:host] }
               lines.concat([ "  VLAN/interface #{vlan}: #{value}", "    #{names.join(', ')}" ])
             end
             if evidence.any? { |row| row[:semantics] }
               evidence.group_by { |row| row[:semantics] }.each_with_index do |(rules, members), variant|
-                lines << "  Rule version #{variant + 1}: #{members.map { |row| by_host.dig(row[:host], 'device', 'name') || row[:host] }.join(', ')}"
+                lines << "  Rule version #{variant + 1}: #{members.map { |row| by_host.dig(row[:host], 'target', 'name') || row[:host] }.join(', ')}"
                 lines.concat(rules.map { |rule| "    #{rule['action']} #{rule['expression']}" })
               end
             end
@@ -94,7 +94,7 @@ module Vxlan
         def review_collected_fabric(policy)
           sources = Dir[File.join(directory, "evidence", "*.json")].sort.map do |path|
             body = CtxCli::Input.read(path: path)
-            [ File.expand_path(path), body, JSON.parse(body) ]
+            [ File.expand_path(path), body, JSON.parse(body, max_nesting: 128) ]
           end
           build_review(sources, policy: policy, standalone: false) unless sources.empty?
         end

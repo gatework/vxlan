@@ -18,7 +18,7 @@ module Vxlan
     class Review
       # 比较范围由业务策略统一验证，审查器只负责组织规则与建议。
       def initialize(documents, policy)
-        @documents = documents.to_h { |document| [ document.fetch("device").fetch("host"), document ] }
+        @documents = documents.to_h { |document| [ document.fetch("target").fetch("host"), document ] }
         raise ArgumentError, "Duplicate device identity" unless @documents.size == documents.size
         @scope = Scope.new(policy)
       end
@@ -177,7 +177,7 @@ module Vxlan
           index = (@subnet_indexes[host] ||= SubnetIndex.new(config))
           excluded = except&.first == host ? except.last : nil
           index.conflicts(address: change["address"], vrf: change["vrf"], vni: change["vni"], except_interface: excluded).map do |entry|
-            { host: host, name: @documents[host]["device"]["name"], **entry }
+            { host: host, name: @documents[host]["target"]["name"], **entry }
           end
         end
       end
@@ -299,7 +299,7 @@ module Vxlan
 
       # 观察附带设备名、地址及本地 VLAN，报告可直接定位配置入口。
       def observations(rows)
-        rows.map { |row| { host: row[:host], name: @documents[row[:host]]["device"]["name"], vlan: row[:vlan], value: yield(row) } }
+        rows.map { |row| { host: row[:host], name: @documents[row[:host]]["target"]["name"], vlan: row[:vlan], value: yield(row) } }
       end
 
       # 按业务问题计数，不把证据行数当作问题数量。

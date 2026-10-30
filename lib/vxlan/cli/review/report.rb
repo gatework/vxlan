@@ -18,10 +18,10 @@ module Vxlan
           @fabric_text = @fabric_audit && fabric_text(@fabric_audit, documents)
           entries = sources.map do |path, body, document, initial|
             advice = initial || Recommendations.new(document).call
-            additions = @fabric_audit && @fabric_audit[:device_items][document["device"]["host"]]
+            additions = @fabric_audit && @fabric_audit[:device_items][document["target"]["host"]]
             advice = Recommendations.combine(advice, additions)
-            device = document.fetch("device")
-            basename = CLI::Report.device_basename(device)
+            device = document.fetch("target")
+            basename = CLI::Report.target_basename(device)
             write_review(document, basename: basename, source: path, source_sha256: Digest::SHA256.hexdigest(body), advice: advice)
           end
           finish_review(entries, source_batch: File.dirname(File.dirname(sources.first[0])), standalone: standalone)
@@ -32,7 +32,7 @@ module Vxlan
           raise ArgumentError, "Invalid report name" unless basename.match?(/\A[A-Za-z0-9_.-]+\z/)
           advice = report_advice(advice || Recommendations.new(document).call).merge(source: source, source_sha256: source_sha256)
           advice[:items] = advice[:items].map(&:dup)
-          entry = { device: advice[:device], counts: advice[:counts], basename: basename, report: "devices/#{basename}.txt", source: source,
+          entry = { target: advice[:target], counts: advice[:counts], basename: basename, report: "devices/#{basename}.txt", source: source,
             source_sha256: source_sha256, script: nil, script_sha256: nil, plans: [], changes: {}, advice: advice }
           config = Config::Evidence.complete_record(document)
           config_sha256 = nil
@@ -43,7 +43,7 @@ module Vxlan
             change = plan.to_h
             id = [ basename, change["kind"], "vlan#{change['vlan']}", change["direction"], CtxRunner::Fingerprint.call(change)[0, 12] ].compact.join("--")
             config_sha256 ||= CtxRunner::Fingerprint.call(config)
-            entry[:changes][id] = { schema_version: CtxRunner::Evidence::VERSION, kind: "change", platform: "cisco_nxos", device: document.fetch("device"), expected_config_sha256: config_sha256,
+            entry[:changes][id] = { schema_version: CtxRunner::Evidence::VERSION, kind: "change", platform: "cisco_nxos", target: document.fetch("target"), expected_config_sha256: config_sha256,
               source: source, source_sha256: source_sha256, change: change, commands: plan.commands, rollback: plan.rollback,
               scope: item[:scope], title: item[:title], prerequisites: item[:prerequisites], impact: item[:impact], verify: item[:verify] }
             item[:plan_id] = id
@@ -71,11 +71,11 @@ module Vxlan
           checkpoint("summary.json", summary) if standalone
           plan = { schema_version: CtxRunner::Evidence::VERSION, kind: "change_plan", platform: "cisco_nxos", mode: "review", devices: public_entries, audits: entries.map { |entry| entry[:advice] },
             changes: entries.each_with_object({}) { |entry, all| all.merge!(entry[:changes]) }, fabric: @fabric_audit && @fabric_audit.reject { |key, _| key == :device_items } }
-          body = JSON.pretty_generate(plan) + "\n"
+          body = JSON.pretty_generate(plan, max_nesting: 128) + "\n"
           summary[:plan_sha256] = Digest::SHA256.hexdigest(body)
           publish("plan.json", body)
           publish("plan.json.sha256", summary[:plan_sha256] + "\n")
-          events = public_entries.map { |entry| JSON.generate(event: "device_reviewed", reviewed_at: Time.now.utc.iso8601(6), host: entry[:device]["host"], source_sha256: entry[:source_sha256], counts: entry[:counts], report: entry[:report], script: entry[:script], executed: false) }
+          events = public_entries.map { |entry| JSON.generate(event: "device_reviewed", reviewed_at: Time.now.utc.iso8601(6), host: entry[:target]["host"], source_sha256: entry[:source_sha256], counts: entry[:counts], report: entry[:report], script: entry[:script], executed: false) }
           publish("events.jsonl", events.join("\n") + (events.empty? ? "" : "\n"))
           text = summary_text(summary)
           if standalone
@@ -110,7 +110,7 @@ module Vxlan
 
         # 文本按设备、证据、问题、动作顺序组织，完整跨设备证据位于聚合计划。
         def device_text(entry, document)
-          advice, device = entry.values_at(:advice, :device)
+          advice, device = entry.values_at(:advice, :target)
           lines = [ "Device: #{device['name']} (#{device['host']})", "Mode: diagnostics and planning; no device configuration executed", "Evidence time: #{advice[:observed_at] || 'unknown'}", "Source: #{entry[:source]}", "Source file SHA256: #{entry[:source_sha256]}",
             "Recommendations: #{entry[:counts]}", "Command file: #{entry[:script] || 'not generated'}", "Command SHA256: #{entry[:script_sha256] || 'none'}", "Plan file: plan.json; interactive plan items: #{entry[:plans].size} items", "" ]
           lines << "Collection status: #{document['status']}" if document["status"]
@@ -120,7 +120,7 @@ module Vxlan
           advice[:items].each_with_index do |item, index|
             lines.concat([ "", "#{index + 1}. #{item[:scope]} — #{item[:title]}", "Status: #{item[:status]}; rule: #{item[:code]}", "Impact: #{item[:impact]}" ])
             evidence = item[:category] == "fabric" ? Array(item[:evidence]).select { |row| row[:host] == device["host"] } : item[:evidence]
-            lines.concat([ "Local evidence: ", JSON.pretty_generate(evidence) ])
+            lines.concat([ "Local evidence: ", JSON.pretty_generate(evidence, max_nesting: 128) ])
             lines << "Cross-device comparison: summary.txt; full raw comparison: audits / fabric in plan.json." if item[:category] == "fabric"
             if item[:plan_id]
               lines << "Interactive plan item: #{item[:plan_id]}"
@@ -146,8 +146,8 @@ module Vxlan
             "Read in order: summary.txt -> devices/<device>.txt -> scripts/<device>.cfg -> the selected plan item in plan.json.",
             "evidence/ stores collection evidence used by the program; routine review does not require opening it. devices/ contains readable diagnostics only.",
             "plan.json.sha256 verifies the aggregate plan; events.jsonl records this offline review, not device sessions or execution receipts.", "Applying requires selecting one --item, interactive confirmation, configuration readback and fingerprint verification; there is no automatic bulk execution.", "" ]
-          entries.sort_by { |entry| [ entry[:counts].values.sum.positive? ? 0 : 1, entry[:device]["name"].to_s ] }.each do |entry|
-            lines.concat([ "#{entry[:device]['host']} #{entry[:device]['name']} unresolved=#{entry[:counts].fetch('blocked', 0)} candidates=#{entry[:counts].fetch('candidate', 0)} investigations=#{entry[:counts].fetch('investigate', 0)}",
+          entries.sort_by { |entry| [ entry[:counts].values.sum.positive? ? 0 : 1, entry[:target]["name"].to_s ] }.each do |entry|
+            lines.concat([ "#{entry[:target]['host']} #{entry[:target]['name']} unresolved=#{entry[:counts].fetch('blocked', 0)} candidates=#{entry[:counts].fetch('candidate', 0)} investigations=#{entry[:counts].fetch('investigate', 0)}",
               "  Device report: #{entry[:report]}", "  Command file: #{entry[:script] || 'not generated'}; executable plans: #{entry[:plans].size} items" ])
           end
           lines.concat([ "", @fabric_text ]) if @fabric_text

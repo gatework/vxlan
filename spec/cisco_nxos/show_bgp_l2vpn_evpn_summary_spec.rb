@@ -59,10 +59,10 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
     shutdown = idle.sub("Idle", "Shut (Admin)")
     result = parse(counts(2, 1) + established + shutdown)
     expect(result).to be_complete
-    expect(result.records.last).to include(state: "shut_(admin)", remote_as: 65002, prefixes_received: nil)
+    expect(result.records.last).to include(state: :shutdown, remote_as: 65002, received_prefixes: nil)
     unknown = parse(counts(1, 0) + idle.sub("4 65002", "4 0"))
     expect(unknown).to be_complete
-    expect(unknown.records.first).to include(remote_as: nil, state: "idle", prefixes_received: nil)
+    expect(unknown.records.first).to include(remote_as: nil, state: :idle, received_prefixes: nil)
     [ established.sub("4 65001", "4 0"), established.sub("4 65001", "4 4294967296"), idle.sub("4 65002", "4 4294967296") ].each do |row|
       invalid = parse(counts(1, 0) + row)
       expect(invalid.status).to eq(:partial)
@@ -84,13 +84,13 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
     [ "Idle", "Idle (Admin)", "Shut (Admin)" ].each do |state|
       result = parse(counts(2, 1) + established + idle.sub("Idle", state) + statistics.sub("Idle", state))
       expect(result).to be_complete, result.issues.inspect
-      expect(result.records.last).to include(prefixes_received: nil, prefixes_by_type: { type2: 0, type3: 0 })
+      expect(result.records.last).to include(received_prefixes: nil, prefixes_by_type: { type2: 0, type3: 0 })
       expect(result.records.last[:state]).not_to eq("established")
     end
     unknown = (idle + statistics).gsub("65002", "0").sub("Idle 0 0", "Idle 2 1")
     result = parse(counts(2, 1) + established + unknown)
     expect(result).to be_complete
-    expect(result.records.last).to include(remote_as: nil, prefixes_received: nil, prefixes_by_type: { type2: 2, type3: 1 })
+    expect(result.records.last).to include(remote_as: nil, received_prefixes: nil, prefixes_by_type: { type2: 2, type3: 1 })
   end
 
   it "rejects inconsistent state statistics while retaining the independently parsed neighbor" do
@@ -99,7 +99,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
       statistics.delete_suffix(statistics.lines.last) ].each do |invalid|
       result = parse(counts(2, 1) + established + idle + invalid)
       expect(result.status).to eq(:partial)
-      expect(result.records.last).to include(state: "idle", prefixes_received: nil)
+      expect(result.records.last).to include(state: :idle, received_prefixes: nil)
     end
   end
 
@@ -107,7 +107,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
     types = "Neighbor T AS Type-2 Type-3\n192.0.2.1 I 65001 2 3\n192.0.2.2 E 65002 0 0\n"
     result = parse(counts(2, 1) + established + idle + types)
     expect(result).to be_complete
-    expect(result.records.last).to include(prefixes_received: nil, state: "idle", prefixes_by_type: { type2: 0, type3: 0 })
+    expect(result.records.last).to include(received_prefixes: nil, state: :idle, prefixes_by_type: { type2: 0, type3: 0 })
   end
 
   it "does not forget missing prefix statistics when a repeated neighbor header follows" do
@@ -186,7 +186,7 @@ RSpec.describe Vxlan::CiscoNxos::Parsers::ShowBgpL2vpnEvpnSummary do
         "#{statistics} I 65001 5 2 1 0 2\n")
 
       expect(result).to be_complete
-      expect(result.records.first).to include(peer_ip: "2001:db8::1", prefixes_by_type: { type2: 2, type3: 1, type4: 0, type5: 2 })
+      expect(result.records.first).to include(peer_address: "2001:db8::1", prefixes_by_type: { type2: 2, type3: 1, type4: 0, type5: 2 })
     end
   end
 

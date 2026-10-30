@@ -36,10 +36,10 @@ RSpec.describe Vxlan::Collector do
     target[:host].replace("192.0.2.20")
 
     expect(result).to be_complete
-    expect(result.target).to eq(id: "fixture:leaf", host: +"192.0.2.10")
+    expect(result.target.to_h).to eq(id: "fixture:leaf", host: +"192.0.2.10", platform: "cisco_nxos")
     observation = result.observations.fetch(:configuration)
     expect(observation.records.first[:hostname]).to eq("LEAF")
-    expect(observation.evidence.first).to include(command: "show running-config", sha256: a_string_matching(/\A[0-9a-f]{64}\z/))
+    expect(observation.evidence.first.to_h).to include(command: "show running-config", sha256: a_string_matching(/\A[0-9a-f]{64}\z/))
     expect(observation.evidence.inspect).not_to include("hostname LEAF")
   end
 
@@ -65,7 +65,7 @@ RSpec.describe Vxlan::Collector do
 
     result = collector.collect(connector: connector, target: target, fabric_key: fabric_key, dimensions: dimensions)
     expect(result).to be_complete
-    expect(result.target[:host]).to eq("192.0.2.10")
+    expect(result.target.host).to eq("192.0.2.10")
     expect(result.fabric_key).to eq("LAB")
     expect(result.observations.keys).to contain_exactly(:configuration, :port_channels)
     expect(session).to have_received(:send_commands).with([ "show port-channel summary" ])
@@ -108,7 +108,7 @@ RSpec.describe Vxlan::Collector do
 
   it "rejects invalid targets and selections before opening a connection" do
     expect(connector).not_to receive(:open)
-    expect { collector.collect(connector: connector, target: "device", fabric_key: "LAB") }.to raise_error(ArgumentError)
+    expect { collector.collect(connector: connector, target: "target", fabric_key: "LAB") }.to raise_error(ArgumentError)
     [ [], [ :configuration, :configuration ], [ :unknown ] ].each do |dimensions|
       expect { collect(*dimensions) }.to raise_error(ArgumentError)
     end
@@ -150,7 +150,12 @@ RSpec.describe Vxlan::Collector do
     allow(connector).to receive(:platform).and_return(:cisco_ios)
     expect(connector).not_to receive(:open)
 
-    expect { collect(:configuration) }.to raise_error(ArgumentError, "VXLAN requires Cisco NX-OS")
+    expect { collect(:configuration) }.to raise_error(ArgumentError, "Unsupported parser platform")
+  end
+
+  it "rejects target platform disagreement before opening the connector" do
+    expect(connector).not_to receive(:open)
+    expect { collector.collect(connector: connector, target: target.merge(platform: "h3c"), fabric_key: "LAB") }.to raise_error(ArgumentError)
   end
   it "collects a borrowed session without opening or closing it" do
     expect(session).not_to receive(:open)

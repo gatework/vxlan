@@ -8,7 +8,7 @@ module Vxlan
       # 在所属邻居记录内解释 CDP 详细字段。
       class ShowCdpNeighborsDetail < Parser
         EMPTY = "(?:CDP neighbors|CDP entries|neighbors|entries)".freeze
-        IDENTITY = %i[device_id interface neighbor_interface].freeze
+        IDENTITY = %i[device_id local_interface remote_interface].freeze
 
         private
 
@@ -39,7 +39,7 @@ module Vxlan
             end
             case line
             when /\A--More--/i then unparsed_records(number)
-            when /\ASystem Name:\s*(\S.*)\z/i then assign_field(row, :neighbor_name, $1, number)
+            when /\ASystem Name:\s*(\S.*)\z/i then assign_field(row, :remote_name, $1, number)
             when /\AInterface address\(es\):(?:\s+\d+)?\z/i then scope = :interface_addresses
             when /\AMgmt address\(es\):(?:\s+\d+)?\z/i then scope = :management_addresses
             when /\AIP(?:v[46])? Address:\s*(\S+)\z/i
@@ -55,9 +55,9 @@ module Vxlan
               assign_field(row, :capabilities, capabilities, number)
               scope = nil
             when /\AInterface:\s*(\S+),\s*Port ID \(outgoing port\):\s*(\S.*)\z/i
-              interface, neighbor_interface = $1, $2
-              assign_field(row, :interface, interface, number)
-              assign_field(row, :neighbor_interface, neighbor_interface, number)
+              interface, remote_interface = $1, $2
+              assign_field(row, :local_interface, interface, number)
+              assign_field(row, :remote_interface, remote_interface, number)
               scope = nil
             when /\AHoldtime:\s*(\d+) sec\z/i then assign_field(row, :holdtime, $1.to_i, number)
             when /\AVersion:\z/i
@@ -81,10 +81,10 @@ module Vxlan
           totals.each { |total| count_mismatch(total, @rows.size) }
           @empty = true if totals == [ 0 ] && @rows.empty?
           @rows.reject! do |entry|
-            next true if @field_conflicts.fetch(entry, {}).keys.intersect?(%i[neighbor_name interface neighbor_interface])
+            next true if @field_conflicts.fetch(entry, {}).keys.intersect?(%i[remote_name local_interface remote_interface])
 
-            entry[:neighbor_name] ||= entry[:device_id].sub(/\([^)]*\)\z/, "").split(".").first
-            if entry.values_at(:neighbor_name, :interface, :neighbor_interface).any? { |value| value.nil? || value.empty? }
+            entry[:remote_name] ||= entry[:device_id].sub(/\([^)]*\)\z/, "").split(".").first
+            if entry.values_at(:remote_name, :local_interface, :remote_interface).any? { |value| value.nil? || value.empty? }
               @issues << { code: :incomplete_cdp_neighbor }
               true
             end

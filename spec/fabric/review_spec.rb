@@ -5,7 +5,7 @@ require "json"
 
 RSpec.describe "Fabric business consistency" do
   def leaf(host, acl: "protect", address: "192.0.2.254/24", vni: 10008)
-    { "device" => { "host" => host, "name" => host }, "snapshot" => { "observations" => {
+    { "target" => { "host" => host, "name" => host }, "snapshot" => { "observations" => {
       "configuration" => { "status" => "complete", "records" => [ {
         "review_status" => "complete", "vlan_vnis" => { "8" => vni }, "interfaces" => { "Vlan8" => { "addresses" => address ? [ address ] : [], "vrf" => "tenant", "anycast" => true, "shutdown" => false, "mtu" => 9216, "acl_bindings" => acl ? { "out" => acl } : {} } },
         "acls" => { "protect" => [ { "sequence" => 10, "action" => "deny", "expression" => "ip any 192.0.2.0/24" }, { "sequence" => 20, "action" => "permit", "expression" => "ip any any" } ] },
@@ -16,7 +16,7 @@ RSpec.describe "Fabric business consistency" do
   end
 
   def audit(*documents)
-    Vxlan::Fabric::Review.new(documents, { "fabrics" => { "test" => { "leaves" => documents.map { |d| d["device"]["host"] } } } }).call
+    Vxlan::Fabric::Review.new(documents, { "fabrics" => { "test" => { "leaves" => documents.map { |d| d["target"]["host"] } } } }).call
   end
 
   it "compares address groups only across referencing hosts and retains missing definitions in host order" do

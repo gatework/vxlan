@@ -28,20 +28,20 @@ module Vxlan
       def write_execution(state) = @report.write_execution(state)
 
       # 采集和离线审查共用稳定名称，保留 IPv6 地址并避免设备名成为路径。
-      def self.device_basename(device)
+      def self.target_basename(device)
         "#{device.fetch('name').gsub(/[^A-Za-z0-9_.-]/, '_')[0, 100]}-#{device.fetch('host').gsub(/[^A-Za-z0-9_.-]/, '_')}"
       end
 
       # 每台完成后立即原子保存，即使批次随后取消仍可读取已完成证据。
       def write(result, snapshot: nil)
-        device = result.fetch(:device)
-        name = self.class.device_basename(device)
+        device = result.fetch(:target)
+        name = self.class.target_basename(device)
         # 保存状态属于批次宿主；不能让正在发布的文件预先声明自身已保存。
         body = result.reject { |key, _| key == :report_saved }.merge(snapshot: snapshot && snapshot.to_h)
         document = CtxRunner::Evidence.wrap(body, kind: "collection")
         advice = report_advice(Recommendations.new(document).call)
         document = document.merge("recommendations" => advice)
-        json = JSON.pretty_generate(document) + "\n"
+        json = JSON.pretty_generate(document, max_nesting: 128) + "\n"
         prepare_directory(File.join(directory, "evidence"))
         publish("evidence/#{name}.json", json)
         write_review(document, basename: name, source: File.join(directory, "evidence", "#{name}.json"), source_sha256: Digest::SHA256.hexdigest(json), advice: advice)
@@ -61,7 +61,7 @@ module Vxlan
           text << "Progress output error: #{summary['output_error']['error_type']}; device results retained" if summary["output_error"]
           summary.fetch("devices").each do |r|
             saved = r["report_saved"] == true ? "saved" : "persistence unconfirmed"
-            text << "#{r['device']['host']}\t#{r['device']['name']}\t#{r['status']}\t#{saved}\t#{r['error']}"
+            text << "#{r['target']['host']}\t#{r['target']['name']}\t#{r['status']}\t#{saved}\t#{r['error']}"
           end
           pending.each { |device| text << "#{device['host']}\t#{device['name']}\tnot collected" }
           text.join("\n") + "\n"

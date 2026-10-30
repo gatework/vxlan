@@ -48,7 +48,7 @@ module Vxlan
         items.concat(undefined_acl_items(config))
       end
       items.concat(runtime_tasks)
-      { schema_version: CtxRunner::Evidence::VERSION, kind: "recommendations", review_only: true, health_assessment: "not_performed", device: @document["device"],
+      { schema_version: CtxRunner::Evidence::VERSION, kind: "recommendations", review_only: true, health_assessment: "not_performed", target: @document["target"],
         observed_at: @document.dig("snapshot", "observed_at"), items: items, counts: items.map { |item| item[:status] }.tally }
     end
 

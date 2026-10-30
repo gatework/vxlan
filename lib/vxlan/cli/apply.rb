@@ -4,34 +4,18 @@ require "ctx_cli/apply"
 require "ctx_runner/document"
 require "ctx_runner/evidence"
 require "ctx_runner/execution"
+require "ctx_runner/configuration_session"
 require "vxlan"
 require_relative "report"
 require_relative "../change_plan"
 
 module Vxlan
   module CLI
-    # 原生会话适配：读取使用固定查询提示符，写入由连接器识别配置模式提示符。
-    class ApplySession
-      # 借用一次已连接且独占的会话，不重连、不重放。
+    # 领域仅声明准备命令及配置语法，共享会话维护回执和读取边界。
+    class ApplySession < CtxRunner::ConfigurationSession
       def initialize(native)
-        @native = native
-      end
-
-      # 读回完整配置并交给现有解析器；部分证据不能参与前置检查或验收。
-      def read_configuration
-        [ "terminal length 0", "terminal width 511" ].each { |command| write(command) }
-        capture = CtxDriver::Reader.new(session: @native).read("show running-config")
-        raise IOError, "Configuration readback failed" unless capture.success?
-        observation = Vxlan::Config.new.parse(capture.body, complete: true)
-        raise ArgumentError, "Configuration evidence is incomplete" unless observation.complete? && observation.records.one?
-        CtxRunner::Document.call(observation.records.first)
-      end
-
-      # 每次只发一条命令；失败立即交还宿主，原始输出不进入终端和日志报告。
-      def write(command)
-        result = @native.execute_command(command.strip, output_sensitive: true)
-        raise IOError, "Device command is unconfirmed" unless result.success? && result.steps.one? && result.steps.first.command.text == command.strip
-        true
+        super(session: CtxDriver::Session.new(native), preparation_commands: [ "terminal length 0", "terminal width 511" ],
+          configuration_command: "show running-config", parser: Vxlan::Config.new)
       end
     end
 
